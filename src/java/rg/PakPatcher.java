@@ -46,7 +46,7 @@ final class PakPatcher {
     }
 
     /** Patch format version; bump when transforms change so old patched paks are rebuilt. */
-    private static final String VERSION = "2";
+    private static final String VERSION = "4";
 
     /** Ensures every patched pak matches the engine resolution. Safe to call every launch. */
     static void ensureAll(File gameDir, int width, int height) {
@@ -60,18 +60,56 @@ final class PakPatcher {
                 return name.startsWith(MASK_PREFIX) ? resizeMask(raw, w, h) : null;
             }
         });
-        Transform centre = new Transform() {
-            public byte[] apply(String name, byte[] raw) {
-                return name.endsWith(".xml") ? offsetScene(raw, dx, dy) : null;
-            }
-        };
-        for (String pak : SCENE_PAKS) {
-            patchPak(gameDir, pak, dx + "," + dy, centre);
+        restoreUnmanaged(gameDir);
+        for (int i = 0; i < SCENE_PAKS.length; ++i) {
+            final java.util.regex.Pattern files = java.util.regex.Pattern.compile(SCENE_FILES[i]);
+            patchPak(gameDir, SCENE_PAKS[i], dx + "," + dy, new Transform() {
+                public byte[] apply(String name, byte[] raw) {
+                    return files.matcher(name).matches() ? offsetScene(raw, dx, dy) : null;
+                }
+            });
         }
     }
 
-    /** Paks whose XML scenes use absolute 240x320 coordinates. */
+    /**
+     * Scene scripts that use absolute 240x320 coordinates and are drawn straight to
+     * the screen, per pak (regex on the lower-case path). Not menus.pak: its
+     * win/lose screens and fight.pak's cut-ins render into a fixed 240x320 surface,
+     * so shifting their scripts moves content out of view (verified 2026-10-16).
+     */
     static final String[] SCENE_PAKS = {"intro", "story"};
+    static final String[] SCENE_FILES = {
+        ".*\\.xml",
+        ".*\\.xml",
+    };
+
+    /** Puts back the original of any pak an earlier version patched but this one does not. */
+    static void restoreUnmanaged(File gameDir) {
+        java.util.Set<String> managed = new java.util.HashSet<String>(java.util.Arrays.asList(SCENE_PAKS));
+        managed.add("base");
+        File[] stamps = gameDir.listFiles();
+        if (stamps == null) {
+            return;
+        }
+        for (File stamp : stamps) {
+            String n = stamp.getName();
+            if (!n.endsWith(".pak.revived")) {
+                continue;
+            }
+            String base = n.substring(0, n.length() - ".pak.revived".length());
+            File orig = new File(gameDir, base + ".pak.orig");
+            if (managed.contains(base) || !orig.exists()) {
+                continue;
+            }
+            try {
+                copy(orig, new File(gameDir, base + ".pak"));
+                stamp.delete();
+                System.out.println("Revived: restored original " + base + ".pak");
+            } catch (IOException ex) {
+                System.out.println("Revived: could not restore " + base + ".pak (" + ex + ")");
+            }
+        }
+    }
 
     interface Transform {
         /** Returns replacement bytes, or null to keep the entry. Names are lower-case. */

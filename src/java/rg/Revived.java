@@ -33,8 +33,8 @@ import javax.swing.SwingUtilities;
 public class Revived extends StandaloneClient {
     private static final long serialVersionUID = 1L;
 
-    /** Largest frame the engine has been verified to handle (see docs/ENGINE_NOTES.md). */
-    static final int MAX_RENDER_PIXELS = 1920 * 1080;
+    /** Largest frame the engine has been tested with (see docs/WINDOWS_PORT.md). */
+    static final int MAX_RENDER_PIXELS = 1280 * 720;
 
     /** Smallest engine height chosen automatically; cutscenes are 320 tall. */
     static final int MIN_AUTO_HEIGHT = 320;
@@ -260,7 +260,9 @@ public class Revived extends StandaloneClient {
         }
         chooseResolution();
         if (configFile != null) {
-            PakPatcher.ensureAll(new File(configFile.getParentFile(), "ResetGeneration"), renderWidth, renderHeight);
+            File gameDir = new File(configFile.getParentFile(), "ResetGeneration");
+            PakPatcher.ensureAll(gameDir, renderWidth, renderHeight);
+            DllPatcher.ensure(gameDir, renderWidth, renderHeight);
         }
         ResetGeneration.SCREEN_W = renderWidth;
         ResetGeneration.SCREEN_H = renderHeight;

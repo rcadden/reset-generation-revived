@@ -106,7 +106,7 @@ Inner formats:
 |-----|------:|--------|
 | `.xml` | 802 | Plain XML: missions/maps (grid data as CSV rows), scene scripts (`<effect name="SPRITE|TILESCROLLER|PARTICLE|SUB|TEXT">` with `<physics type="RESET" positionX/Y …>`), hero animation tables, AI, triggers. Highly moddable. |
 | `.gfx` | 780 | 40-byte header (`u32 2, u32 format, u32 w, u32 h, u32 frames, …, u32 data_size@36`). Format 0 = raw 32-bit ARGB; format 4 = 16-bit RLE (`count, 0x8000|palette-index` pairs); format 2 = multi-frame sheets with an offset table (fonts, sprites). Indexed images use external `.pal` palettes, which is how team colours work. `tools/gfx.py` decodes format 0. |
-| `.spc` | 1669 | Audio clips: music, SFX and voice-over (format not yet decoded) |
+| `.spc` | 1669 | Audio clips: music, SFX and voice-over. 8 kHz, 4-bit codes: header (`u16 rate@6 = 8000`, `u16 bits@10 = 4`, `u32 samples@12`), a 16-entry ascending int16 level table at 0x22, codes from 0x42. Whether codes are absolute levels or deltas is not confirmed yet (`tools/spc.py` is tentative). |
 | `.lng` | 8 | String tables, `KEY value` per line (UTF-16 for zh/ru, 8-bit for others). Exported to `extracted/strings/`. |
 | `.ttf` | 5 | Fonts (Larabie "free for commercial use" fonts per the N-Gage `read_me.html`) |
 | `.pal`, `.ass`, `.ndl`, `.dir` | | Palettes, sound bank, misc |

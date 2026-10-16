@@ -16,9 +16,11 @@ audio device, in-game Quit.
 | Above 240×320 the game crashed on the first screen transition (and showed striped wipes) | The wipe masks in `base.pak` are 240×320 and the blit loops over the whole screen; the launcher now **regenerates the masks at the engine resolution** (originals kept as `base.pak.orig`). |
 | Above 240×320, screens left stale pixels where the original art did not reach | The engine framebuffer is **cleared before every frame**. |
 | Cutscenes drawn in the top-left corner and cut off at the bottom | Cutscene scripts in `intro.pak`/`story.pak` use absolute 240×320 coordinates; the launcher **offsets them to the centre** of the screen. |
+| Attack cut-ins ("fight" popups) drawn against the left edge | Their frame and 240×320 surface are drawn at hard-coded positions; `DllPatcher` **patches those two draw positions** in a copy of the engine DLL (original kept as `.dll.orig`, patch sites verified byte-for-byte first). |
 | Launched via `start.bat` | `ResetGeneration-Revived.exe` with an icon. |
 
-Nothing in the native engine binary is modified: all fixes are in Java and in data.
+Apart from that one verified position patch, the native engine is unmodified: the fixes are in
+Java and in data.
 
 ## How it works
 
@@ -31,7 +33,10 @@ Nothing in the native engine binary is modified: all fixes are in Java and in da
 * `src/java/rg/SharedBackBuffer.java` — adds `clearNative()`.
 * `src/java/rg/PakPatcher.java` — rebuilds `base.pak` (wipe masks), `intro.pak` and
   `story.pak` (scene offsets) from `*.pak.orig` copies whenever the resolution changes; a
-  `*.pak.revived` stamp avoids redoing it on every launch.
+  `*.pak.revived` stamp avoids redoing it on every launch. Paks an older version patched but the
+  current one does not are restored from `.orig`.
+* `src/java/rg/DllPatcher.java` — centres the fight popup (see the class comment for the exact
+  patch: two immediates plus a 21-byte code cave in the unused tail of `.text`).
 * Everything else is the original `ResetGeneration.jar` / `rg-signed.jar`, repacked.
 
 **Resolution choice.** `render_height=auto` takes the largest integer scale that keeps at least
@@ -62,6 +67,9 @@ takes a screenshot (`tools/rgkeys.ps1`, `tools/winshot.ps1`).
    leaving black on the right. Menus are laid out correctly; it is art coverage only. Fix idea:
    extend `PakPatcher` to centre or tile `menus.pak` background sprites.
 2. Cutscene backdrops are 240 px wide: centred with black (or tiled effect layers) either side.
+   The end-of-match **win/lose screens** render into a fixed 240×320 surface at the left (their
+   scripts cannot simply be shifted — tried and reverted); centring them needs a position patch
+   like the fight popup's once its draw call is located.
    A nicer frame (blurred/extended art) would need new art.
 3. "**Quick Match**" and "**Online**" open the dead N-Gage Arena login (Esc backs out). They need
    our own server (`MULTIPLAYER.md`); until then they could be hidden.
