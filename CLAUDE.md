@@ -1,7 +1,8 @@
 # Reset Generation Revived — project notes for agents
 
 Read `README.md`, then the doc for the area you touch (`docs/`). Work on `dev`; `main` only on
-explicit instruction. Local git only (no remote yet).
+explicit instruction. Public repo: github.com/rcadden/reset-generation-revived. Never commit personal paths/emails or
+third-party binaries, paks or decompiled code (`decompiled/` is git-ignored).
 
 ## Facts that are easy to get wrong
 
