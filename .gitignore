@@ -1,0 +1,11 @@
+# Original downloads (large, third-party binaries)
+/*.zip
+/*.n-gage
+# Unpacked game data and generated outputs
+/extracted/
+/build/
+/dist/
+*.log
+hs_err_pid*.log
+/dist/
+__pycache__/
