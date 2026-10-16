@@ -8,7 +8,7 @@ controls, gamepad support), single-player first, multiplayer later.
 We have no engine source. The engine exists as:
 
 * `ResetGeneration-Win32-Web.dll` — **x86 (32-bit) Windows**, ~1.5 MB of code, clean, and
-  readable in Ghidra (decompilation exported to `decompiled/native/rg_win32.c`);
+  readable in Ghidra (decompilation exported locally to `decompiled/native/rg_win32.c`, not in the repo);
 * `ResetGeneration.exe` from the N-Gage SIS — ARMv5 Symbian; its data is DRM-encrypted and
   modern Android phones are increasingly 64-bit-only (no AArch32), so it is not a viable base.
 

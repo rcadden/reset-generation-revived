@@ -25,7 +25,7 @@ src/java/rg/                     Revived launcher + patched wrapper classes (Jav
 src/assets/, src/dist/           icon, default revived.ini, player README
 tools/                           build script, extractors (SIS, pak, gfx), test drivers, Ghidra export
 tools/emu/                       x86-engine-under-emulation proof of concept (Android groundwork)
-decompiled/                      CFR output of both jars; Ghidra C export of the engine DLL
+decompiled/                      CFR output of both jars; Ghidra C export of the engine DLL (generated; git-ignored)
 extracted/                       unpacked downloads, paks, string tables (generated; git-ignored)
 build/, dist/                    build outputs (git-ignored)
 ```
@@ -38,6 +38,15 @@ tools/build_windows.sh
 
 Needs a portable 32-bit Temurin JDK 17 at `C:\dev\toolchains\jdk-17.0.17+10` (see
 `docs/WINDOWS_PORT.md`).
+
+## What this repository does not contain
+
+No game binaries, data paks or decompiled third-party code are distributed here. To build or
+study the game you need your own copy of the original standalone (`ResetGeneration-Standalone.zip`).
+`decompiled/` is regenerated locally: run CFR on `ResetGeneration.jar` and `lib/rg-signed.jar`, and
+`tools/ghidra_scripts/ExportDecomp.java` on the engine DLL. The one exception is
+`src/java/rg/ResetGeneration.java`, a modified decompile of the original wrapper class, kept
+because the launcher needs to replace it to fix the screen size and scaling.
 
 ## Credits
 

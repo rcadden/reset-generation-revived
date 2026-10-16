@@ -44,7 +44,7 @@ needs rooms, membership, ordered broadcast and disconnect notification.
   (`POST http://<gw>:80/perl/sm?`) or a framed TCP connection to port **8976** (hello/hello_ack
   handshake, 16-bit request IDs, async callbacks). Some parameters (passwords, keys) are
   obfuscated with a simple per-command rotate-and-XOR using 16 hard-coded keys (implemented in
-  `decompiled/rg-signed/i.java`), others are base64.
+  `decompiled/rg-signed/i.java`, generated locally), others are base64.
 * **Responses**: first line `200 OK` (or an error code + message), then fields separated by
   `|`, `,` and newlines in a fixed order per command; the field schemas for every command are
   tabled in `decompiled/rg-signed/r.java` (e.g. login returns

@@ -3,6 +3,8 @@
 /*.n-gage
 # Unpacked game data and generated outputs
 /extracted/
+# Decompiled third-party code (regenerate locally; never published)
+/decompiled/
 /build/
 /dist/
 *.log
