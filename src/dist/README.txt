@@ -2,7 +2,7 @@ RESET GENERATION REVIVED
 ========================
 
 Reset Generation (RedLynx / Nokia, 2008) running natively on Windows 10/11
-in widescreen HD. Single-player only (Tutorial, Story Mode, Arcade, Quick Match).
+in widescreen HD. Single-player: Tutorial, Story Mode and Arcade (you vs up to 3 AI).
 
 RUN
   Double-click ResetGeneration-Revived.exe. No Java install needed.
@@ -30,7 +30,8 @@ SETTINGS
   See app\revived.ini (resolution, fullscreen, scaling filter).
 
 NOTES
-  * "Online" does not work: Nokia's N-Gage Arena servers shut down in 2010.
+  * "Quick Match" and "Online" need the N-Gage Arena servers, shut down in 2010
+    (press Esc on the login box to go back). Play Arcade Mode against the AI instead.
   * On first launch the game adapts its data files to your resolution
     (originals are kept as *.pak.orig).
 

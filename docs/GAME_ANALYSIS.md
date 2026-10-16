@@ -145,7 +145,8 @@ Princesses. Developed by RedLynx for Nokia; released 2008 on N-Gage and free on 
 
 **Modes.** Single-Player → Tutorial (3 lessons), Story Mode (9 chapters × 2 battles = 18 missions,
 one per hero with comic cutscenes and voice-over), Arcade Mode (pick hero and up to 3 AI
-opponents); Quick Match; Online (N-Gage Arena — dead since 2010); Settings (Sound, Language,
+opponents); Quick Match (online matchmaking) and Online (friends, rooms) — both N-Gage Arena
+services, dead since 2010; Settings (Sound, Language,
 Custom Keys, Use Default, Erase Data); Info. 8 languages: English, French, German, Italian,
 Spanish, Russian, Chinese Simplified and Traditional.
 

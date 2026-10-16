@@ -48,6 +48,7 @@ public class Revived extends StandaloneClient {
     static int renderHeight;
     static int windowScale;
     static boolean startFullscreen;
+    static boolean startMaximized;
 
     final LauncherApplet applet;
     private boolean fullscreen = false;
@@ -74,6 +75,9 @@ public class Revived extends StandaloneClient {
         this.setMinimumSize(new Dimension(320, 200));
         this.pack();
         this.setLocationRelativeTo(null);
+        if (startMaximized) {
+            this.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        }
         this.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         this.addWindowListener(new WindowAdapter() {
             @Override
@@ -230,6 +234,8 @@ public class Revived extends StandaloneClient {
         if (windowScale <= 0) {
             // Largest integer scale that fits comfortably inside the desktop.
             windowScale = Math.max(1, Math.min((sw - 80) / renderWidth, (sh - 120) / renderHeight));
+            // Only 1x fits (small laptop screens): open maximized and scale fractionally instead.
+            startMaximized = windowScale == 1 && renderWidth * 10 < sw * 7;
         }
         startFullscreen = Boolean.parseBoolean(opt("fullscreen", "false"));
         ResetGeneration.SMOOTH_SCALING = opt("filter", "nearest").equalsIgnoreCase("smooth");

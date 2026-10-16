@@ -63,8 +63,8 @@ takes a screenshot (`tools/rgkeys.ps1`, `tools/winshot.ps1`).
    extend `PakPatcher` to centre or tile `menus.pak` background sprites.
 2. Cutscene backdrops are 240 px wide: centred with black (or tiled effect layers) either side.
    A nicer frame (blurred/extended art) would need new art.
-3. "**Online**" opens the dead N-Gage Arena login. Needs our own server (`MULTIPLAYER.md`); until
-   then the entry could be hidden.
+3. "**Quick Match**" and "**Online**" open the dead N-Gage Arena login (Esc backs out). They need
+   our own server (`MULTIPLAYER.md`); until then they could be hidden.
 4. The game folder must be **writable** (saves and the patched paks live in it): don't install
    under `Program Files`.
 5. No **gamepad** support (Java has none built in). Options: a small XInput→key bridge in the

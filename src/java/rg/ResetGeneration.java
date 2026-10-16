@@ -124,6 +124,8 @@ SNAPMobileSSOProvider {
      *  screen is larger than the art the engine was designed for). */
     static boolean CLEAR_EACH_FRAME = false;
     static boolean SMOOTH_SCALING = false;
+    /** Integer scaling is used when it fills at least this share of the window. */
+    static final double INTEGER_SCALE_MIN_FILL = 0.85;
     private boolean mouseClickedFirst = false;
     private boolean helpIsVisible = false;
     private boolean outOfFocusVisible = false;
@@ -674,7 +676,9 @@ SNAPMobileSSOProvider {
         int aw = this.theApplet.getWidth();
         int ah = this.theApplet.getHeight();
         double scale = Math.min((double) aw / srcW, (double) ah / srcH);
-        if (scale >= 1.0 && !SMOOTH_SCALING) {
+        // Prefer crisp integer scaling, unless it would leave the picture much smaller
+        // than the window (e.g. 683x384 on a 1366x768 laptop): then scale fractionally.
+        if (scale >= 1.0 && Math.floor(scale) / scale >= INTEGER_SCALE_MIN_FILL) {
             scale = Math.floor(scale);
         }
         int dw = (int) Math.round(srcW * scale);
