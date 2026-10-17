@@ -61,6 +61,7 @@ class Emu:
         self.hook_time = 0.0
         self.missing = set()
         self.log_api = False
+        self.api_trace = None
         self._map(STACK_BASE, STACK_SIZE)
         self._map(TEB_ADDR, PAGE * 4)
         self._map(STUB_BASE, 0x100000)
@@ -279,6 +280,8 @@ class Emu:
             nargs = nargs or 0
         else:
             result = fn(self, *args)
+        if self.api_trace:
+            self.api_trace.write('%s %s\n' % (name, '-' if result is None else '%x' % (result & 0xffffffff)))
         if self.log_api:
             print('  %s(%s) -> %s' % (name, ', '.join(hex(a) for a in args), result if result is None else hex(result & 0xffffffff)))
         if result is not None:
@@ -898,6 +901,8 @@ def main():
     os.makedirs(out, exist_ok=True)
     emu = Emu(os.path.join(game_dir, 'ResetGeneration-Win32-Web.dll'), game_dir)
     emu.log_files = '--files' in sys.argv
+    if '--api-trace' in sys.argv:
+        emu.api_trace = open(sys.argv[sys.argv.index('--api-trace') + 1], 'w')
     emu.java_calls = []
     if '--rep-patch' in sys.argv:
         print('patched %d rep movs/stos sites' % emu.patch_rep_strings())

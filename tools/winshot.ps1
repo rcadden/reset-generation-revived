@@ -1,5 +1,5 @@
 # Capture a window (by process name) to PNG. Usage: winshot.ps1 -Proc java -Out file.png
-param([string]$Proc = "java", [string]$Out = "shot.png", [string]$Title = "")
+param([string]$Proc = "java", [string]$Out = "shot.png", [string]$Title = "", [int]$ProcId = 0)
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -15,7 +15,7 @@ public class W {
 }
 "@
 [W]::SetProcessDPIAware() | Out-Null
-$p = Get-Process $Proc -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 -and ($Title -eq "" -or $_.MainWindowTitle -like "*$Title*") } | Select-Object -First 1
+if ($ProcId -ne 0) { $p = Get-Process -Id $ProcId } else { $p = Get-Process $Proc -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 -and ($Title -eq "" -or $_.MainWindowTitle -like "*$Title*") } | Select-Object -First 1 }
 $h = $p.MainWindowHandle
 $r = New-Object W+RECT; [W]::GetClientRect($h, [ref]$r) | Out-Null
 $pt = New-Object W+POINT; [W]::ClientToScreen($h, [ref]$pt) | Out-Null

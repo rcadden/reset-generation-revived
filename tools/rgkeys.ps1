@@ -1,6 +1,6 @@
 # Send key presses to the game window, then optionally screenshot.
 # Usage: rgkeys.ps1 -Keys "RETURN,DOWN,DOWN" [-Hold 80] [-Gap 250] [-Shot out.png]
-param([string]$Keys = "", [int]$Hold = 80, [int]$Gap = 300, [string]$Shot = "", [string]$Proc = "java")
+param([string]$Keys = "", [int]$Hold = 80, [int]$Gap = 300, [string]$Shot = "", [string]$Proc = "java", [int]$ProcId = 0)
 Add-Type @"
 using System; using System.Runtime.InteropServices;
 public class K {
@@ -11,7 +11,7 @@ public class K {
 }
 "@
 $vk = @{ RETURN=0x0D; ENTER=0x0D; ESC=0x1B; ESCAPE=0x1B; SPACE=0x20; LEFT=0x25; UP=0x26; RIGHT=0x27; DOWN=0x28; BACK=0x08; TAB=0x09; F1=0x70; F2=0x71; F11=0x7A; CTRLR=0xA3; SHIFT=0x10; CTRL=0x11; ALT=0x12 }
-$p = Get-Process $Proc | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if ($ProcId -ne 0) { $p = Get-Process -Id $ProcId } else { $p = Get-Process $Proc | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1 }
 [K]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
 [K]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 150
@@ -28,4 +28,4 @@ if ($Keys -ne "") {
     Start-Sleep -Milliseconds $Gap
   }
 }
-if ($Shot -ne "") { & (Join-Path $PSScriptRoot "winshot.ps1") -Proc $Proc -Out $Shot }
+if ($Shot -ne "") { & (Join-Path $PSScriptRoot "winshot.ps1") -Proc $Proc -ProcId $ProcId -Out $Shot }
