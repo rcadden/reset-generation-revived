@@ -12,10 +12,12 @@ const PORT = Number(arg('port', process.env.PORT ?? 8787));
 const HOST = arg('host', process.env.HOST ?? '0.0.0.0');
 const IDLE_MS = 60_000;      // clients ping every 15 s
 const quiet = process.argv.includes('--quiet');
+const MATCH_SIZE = Number(arg('match-size', process.env.MATCH_SIZE ?? 2));   // players per Quick Match (1 for testing)
 
 const relay = new Relay({
   log: quiet ? () => {} : (s) => console.log(new Date().toISOString(), s),
   logPackets: process.argv.includes('--log-packets'),
+  matchSize: MATCH_SIZE,
 });
 
 const server = http.createServer((req, res) => {

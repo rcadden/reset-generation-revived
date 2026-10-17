@@ -9,7 +9,7 @@ Status (2026-10-17):
 | Client: native/Android (`native/rt/net.c`) | **Done** (plain `ws://` only) |
 | Casino system (login, casino enter, Quick Match queue, lock, matched-up) | **Done** — both players listed in "Players in Match", "Game starting…" |
 | Game room bot (`server/src/gameroom.js`: handshake, seating on 0x15, forwarding) | **Done** — both players seated in a shared room |
-| Game server (channel 0x16: world setup, then the match) | **Open** — the engine needs its own server-mode controller running somewhere; plan in "Next step" |
+| Game server (channel 0x16: world setup, then the match) | **Phase 0 works**: a headless second engine instance (`rgtest --server`) serves M1..M4 and the client shows the match screen; a crash in the first game event is open (see "Phase 0 result") |
 | Friendly arenas, rankings, statistics, achievements, friends | Answered with empty/OK replies so the client does not stall; not implemented |
 
 ## How online worked in 2008–2010
@@ -196,6 +196,65 @@ Done = one `rgtest` client gets M1…M4 from a headless server instance and show
    `RT_LIVE_TRIGGER`, relay `--log-packets`. Check the client's 40 s join window
    (`0x1000d730`: `timeGetTime()+40000`) and that M1 arrives only after the client's idle
    frame (`0x100ebed0`).
+
+### Phase 0 result (2026-10-17)
+
+`rgtest <dll> <dir> N <out> --realtime --server ws://host:8787/ws QM_1 --keys "250:ESC"` runs the
+engine as the room's game server (`native/rt/server.c`); one `rgtest` client in Quick Match
+(relay started with `--match-size 1`) receives M1 (world dump, ~2 KB), M3, M4 and shows the match
+screen (two castles on the field). Transport findings:
+
+* **No tcp:// and no multi-peer naf://.** The only MT transport in this DLL is NAF (SNAP rooms);
+  `tcp://` URLs fail in the connection factory (`0x10118de0`), and one NAF connection is one room
+  membership (`send(len)` has no room argument), so one engine cannot serve several players over
+  its own transport. Option (c) is what works: create the sessions ourselves.
+* **What the controller needs.** The LAN host screen `0x100caa80` (ctor; arguments: context
+  `[menuflow+0x10]`, a list of hero ids whose *length* selects the mission, `MissionID` 2..4 in
+  `data/levels/maps/*.xml`; an empty list crashes `0x1003fd50`) and its entry `0x100ca920` create
+  the controller (`0x1000ecd0`, mode flags 3) and a TCP acceptor (vtable `0x10188b64`). The
+  screen's per-frame code calls the acceptor's poll (slot 2, `0x100df540`), which asks a listener
+  object (`[acceptor+8]`, `vt+0x4c` accept) for a connection, wraps it in a session (`0x1005d320`)
+  and attaches it (`0x1000d730`). The host builds the screen itself: the hook on the menu flow
+  constructor (`0x1008f500`, `rt_hook`) yields the flow object, `host_game()` calls the screen
+  constructor and the flow's set-screen method (`vt+0x14`). No menu navigation is needed.
+* **We replace the acceptor's slot 1** (`setController`, `0x100df500`, which would listen on
+  `tcp://:12345`) with a stub that installs a fake listener and sets `[acceptor+0x18]`. The
+  listener hands out "HostConn" objects: guest objects whose vtable implements the connection
+  methods a session uses: `+0x14` address object (printed only), `+0x18` state (≥ 2),
+  `+0x2c` alive, `+0x5c` close, `+0x68` send(channel, ptr, len) (raw bytes, here the zlib
+  stream), `+0x7c` recv(channel, flag) (an MT message object: `0x1011f700(msg, capacity)`, with
+  the bytes written through its ByteStream at `+0xc`; the *ostream part at +8* has
+  `write(buf, n)` at vtable slot 0 = `0x100f3b90`; slot 0 of the primary vtable is a double
+  reader). Anything else is a fatal that names the slot.
+* **MT framing for large messages** (the relay's `mtPackets`/`mtMessages`): a message is
+  `[u8 channel][payload]`, cut into packets `[u16 header][bytes]`; header = length | piece << 10;
+  the pieces of a split message are numbered 1, 2, … and the last one is 0, so a message that
+  fits one packet has piece 0 (the earlier "frames" were this with piece 0). Packet payload is
+  at most 874 bytes (the fragmenter cap = MTU 876 − 2 from `initNative`). The shift 10 is derived
+  from that cap; the casino connection starts with cap 254 (shift 8), but only the game
+  connection is fragmented by us.
+* **Relay protocol for the server role** (implemented, tested in `server/test`): the server says
+  `hello` then `{"t":"serve","room":"QM_1"}`; it gets `{"t":"player_joined","pid":N}` when the
+  player has taken its seat (its client session exists) and `player_left`; binary frames both
+  ways are `[u16 LE pid][zlib message]`. The server pings every 15 s (the relay reaps idle
+  connections after 60 s). A `join` of a matchmade room that does not exist yet is treated as
+  `create` (the client sends `join` for the `hosted=yes` player).
+* **Recompiler**: `resolve_jump_tables` now also completes tables Ghidra only partially resolved
+  (`0x10010147` had one of its two targets: "indirect call to unknown address 10010153").
+  `DEFAULT_HOOKS` / `--hook` add `rt_hook()` calls at function entries.
+
+**Open (next): crash in the first game event.** Shortly after the match screen appears both the
+client and the server crash in `0x10018940` (the board's "existing combos" check, called from the
+event processor `0x1001dbe0`): it indexes a 5-entry colour table with the cell type, and at that
+call every cell of the board reads type 31 (the first two calls, during setup, show normal
+boards). Not yet known whether the event data from the server is wrong (host-local player 0 is
+also in the match, no input), a recompiler fault in the event path, or a state the single-player
+path never produces. Debugging aids: `RT_NET_DEBUG=1` (server I/O, menu events),
+`RT_HEAP_CHECK=1` (poisoned free blocks), `RT_CRASH_STACK=1` (rgtest prints host return
+addresses on a crash; resolve with `llvm-addr2line` against a `-O0 -g` build of the generated
+file, then read the `/* guest-address */` comments around that C line). Also still open from the plan: the host-local player 0 should be removed, the
+client's 40 s join window and `hosted` semantics for two players, a headless build without the
+menu flow, and the relay's idle timeout handling when the server drops.
 
 ### Phase 1 — relay and room bot
 

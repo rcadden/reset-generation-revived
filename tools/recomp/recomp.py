@@ -509,11 +509,18 @@ class FuncGen:
         head.append('    RT_ENTER(0x%xu);' % self.entry)
         if self.entry in rc.trace:
             head.append('    rt_trace(0x%xu);' % self.entry)
+        if self.entry in rc.hooks:
+            head.append('    rt_hook(0x%xu);' % self.entry)
         if self.body and self.body[0] != self.entry:
             head.append('    goto L_%x;' % self.entry)
         text = '\n'.join(head + out + ['}', ''])
         text = text.replace(' return;', ' RT_LEAVE(); return;')
         return text.replace('@SPILL@', spill).replace('@RELOAD@', reload)
+
+
+# Function entries that call rt_hook() (native/rt/rt.c): the host can intercept them (game
+# server mode: native/rt/server.c). Inert unless a handler is registered.
+DEFAULT_HOOKS = {0x1008fa80, 0x1008f500}      # main menu flow: event handler, constructor
 
 
 class Recompiler:
@@ -529,6 +536,7 @@ class Recompiler:
         self.noreturn = set()
         self.unsupported = defaultdict(int)
         self.trace = set()
+        self.hooks = set()
 
     def fname(self, a):
         return 'f_%08x' % a
@@ -560,7 +568,7 @@ class Recompiler:
             return None
         fixed = 0
         for ins in self.instrs.values():
-            if ins.jumps or not any(op[0] == 'BRANCHIND' for op in ins.ops):
+            if not any(op[0] == 'BRANCHIND' for op in ins.ops):
                 continue
             m = re.search(r'\[E[A-Z]{2}\*0x4 \+ 0x([0-9a-f]+)\]', ins.text)
             if not m:
@@ -570,7 +578,8 @@ class Recompiler:
                 v = rd32(table + 4 * k)
                 if v is None or v not in self.instrs or abs(v - ins.addr) > 0x10000:
                     break
-                ins.jumps.append(v)
+                if v not in ins.jumps:
+                    ins.jumps.append(v)
             fixed += bool(ins.jumps)
         print('jump tables resolved from the image:', fixed)
 
@@ -628,6 +637,9 @@ def main():
     rc.jump_targets = set(j for i in instrs.values() for j in i.jumps)
     if '--trace' in sys.argv:
         rc.trace = set(int(x, 16) for x in sys.argv[sys.argv.index('--trace') + 1].split(',') if x)
+    rc.hooks = set(DEFAULT_HOOKS)
+    if '--hook' in sys.argv:
+        rc.hooks |= set(int(x, 16) for x in sys.argv[sys.argv.index('--hook') + 1].split(',') if x)
     if dll:
         print('data-pointer entries added:', rc.add_data_pointers(read_pe(dll)))
     print('code-immediate entries added:', rc.add_code_immediates())

@@ -112,6 +112,9 @@ extern const unsigned rt_func_count;
 
 void rt_call(uint32_t addr);                               /* indirect call/jump target */
 void rt_trace(uint32_t func);                              /* recomp.py --trace */
+void rt_hook(uint32_t func);                               /* recomp.py hooks (DEFAULT_HOOKS / --hook) */
+typedef void (*rt_hook_fn)(void);                          /* runs at function entry; ECX/ESP are the callee's */
+void rt_hook_add(uint32_t func, rt_hook_fn fn);
 void rt_bad_branch(uint32_t func, uint32_t target) __attribute__((noreturn));
 void rt_unimpl(uint32_t addr, const char *what) __attribute__((noreturn));
 

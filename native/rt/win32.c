@@ -87,6 +87,10 @@ uint32_t rt_heap_alloc(uint32_t n) {
     unsigned c = size_class(n, &rounded);
     uint32_t p = free_head[c];
     if (p) {
+        if (getenv("RT_HEAP_CHECK")) {   /* free blocks are poisoned after the link word */
+            for (uint32_t i = 4; i < rounded; i++) if (M[p + i] != 0xDD) { host_log("heap: use after free: block %08x (size class %u) byte +%u = %02x", p, rounded, i, M[p + i]); rt_dump_calltrace(); break; }
+            if (LD32(p) && (LD32(p) < HEAP_BASE || LD32(p) >= heap_top)) { host_log("heap: corrupt link %08x in free block %08x (size %u)", LD32(p), p, rounded); rt_dump_calltrace(); }
+        }
         free_head[c] = LD32(p);
     } else {
         if ((uint64_t)heap_top + HDR + rounded > (uint64_t)HEAP_BASE + HEAP_SIZE) rt_fatal("guest heap exhausted");
@@ -104,6 +108,7 @@ void rt_heap_free(uint32_t p) {
     uint32_t rounded, size = LD32(p - HDR);
     unsigned c = size_class(size, &rounded);
     ST32(p - HDR + 4, 0);
+    if (getenv("RT_HEAP_CHECK")) memset(M + p + 4, 0xDD, rounded - 4);
     ST32(p, free_head[c]);
     free_head[c] = p;
 }

@@ -24,6 +24,7 @@ void rt_dump_calltrace(void);
 void rt_mem_commit(uint32_t addr, uint32_t size);
 void rt_dispatch_init(void);
 uint32_t rt_guest_call(uint32_t addr, int nargs, const uint32_t *args);
+uint32_t rt_guest_thiscall(uint32_t addr, uint32_t ecx, int nargs, const uint32_t *args);
 
 /* Host stubs: guest-callable functions implemented in C. A stub reads its arguments with
  * rt_arg(i) and finishes with rt_ret(value, n) where n is the number of stack argument

@@ -43,8 +43,9 @@ class Client {
 }
 
 export class Relay {
-  constructor({ log = () => {}, now = () => Date.now(), logPackets = false } = {}) {
+  constructor({ log = () => {}, now = () => Date.now(), logPackets = false, matchSize = 2 } = {}) {
     this.logPackets = logPackets;
+    this.servers = new Map();   // matchmade room key -> client serving it (game server role)
     this.clients = new Map();   // id -> Client
     this.rooms = new Map();     // lower-case room name -> {name, members: Set<Client>, created}
     this.nextId = 1;
@@ -56,6 +57,7 @@ export class Relay {
       this.rooms.set(name.toLowerCase(), { key: name.toLowerCase(), name, members: new Set(), created: this.now(), max, permanent: true,
         bot: new Casino({ send: (client, bytes) => client.send(bytes), log, expectRoom: (n, k) => this.expectRoom(n, k) }) });
     }
+    this.rooms.get('casinosystem').bot.matchSize = matchSize;
   }
 
   /** Register a new connection; returns the handlers the transport must call. */
@@ -90,6 +92,7 @@ export class Relay {
       case 'join': return this.enter(c, m.room, 'join');
       case 'move': return this.enter(c, m.room, 'move');
       case 'leave': return this.leave(c, 'left');
+      case 'serve': return this.serve(c, m.room);
       case 'rooms': return c.ctl({ t: 'rooms', rooms: this.roomList() });
       default: return c.ctl({ t: 'error', op: m.t, code: 'unknown_type' });
     }
@@ -132,13 +135,15 @@ export class Relay {
     }
     let room = this.rooms.get(key);
     if (!room) {
-      if (op === 'join') return c.ctl({ t: 'error', op, room: roomName, code: 'not_found' });
+      if (op === 'join' && !this.expected.has(key)) return c.ctl({ t: 'error', op, room: roomName, code: 'not_found' });
       room = { key, name: roomName, members: new Set(), created: this.now(), max: MAX_ROOM_MEMBERS, permanent: false };
       const exp = this.expected.get(key);
       if (exp) {
         this.expected.delete(key);
         room.bot = new GameRoom({ name: roomName, expected: exp.count, profiles: exp.profiles, log: this.log, send: (client, bytes) => client.send(bytes) });
         // start without the missing players after a while (they would never be greeted)
+        const server = this.servers.get(key);
+        if (server) room.bot.attachServer(this.serverLink(server));
         room.startTimer = setTimeout(() => room.bot.start(), Math.max(0, exp.until - this.now()));
         room.startTimer.unref?.();
       }
@@ -154,6 +159,33 @@ export class Relay {
     if (room.bot) room.bot.join(c);
     else this.greet(room);
     for (const o of room.members) if (o !== c) o.ctl({ t: 'peer_joined', room: room.name, name: c.name });
+  }
+
+  /**
+   * A game server process (the engine in server mode, run by the host player) offers to serve a
+   * matchmade room: it is not a player and is not seated. The room's bot routes the match
+   * channel (0x16) between the players and it (docs/MULTIPLAYER.md).
+   */
+  serve(c, roomName) {
+    if (typeof roomName !== 'string' || !ROOM_RE.test(roomName)) return c.ctl({ t: 'error', op: 'serve', code: 'bad_room' });
+    const key = roomName.toLowerCase();
+    if (c.room) this.leave(c, 'left');
+    if (this.servers.has(key) && this.servers.get(key) !== c) return c.ctl({ t: 'error', op: 'serve', room: roomName, code: 'taken' });
+    this.servers.set(key, c);
+    c.serves = key;
+    this.log(`${c.name} serves ${roomName}`);
+    c.ctl({ t: 'serving', room: roomName });
+    this.rooms.get(key)?.bot?.attachServer(this.serverLink(c));
+  }
+
+  serverLink(c) {
+    return { ctl: (m) => c.ctl(m), send: (bytes) => c.send(bytes) };
+  }
+
+  unserve(c) {
+    this.servers.delete(c.serves);
+    this.rooms.get(c.serves)?.bot?.detachServer();
+    c.serves = null;
   }
 
   /** The matchmaker announces how many players a game room will have. */
@@ -190,6 +222,7 @@ export class Relay {
 
   onBinary(c, bytes) {
     c.lastSeen = this.now();
+    if (c.serves) return this.rooms.get(c.serves)?.bot?.fromServer(bytes);
     if (!c.room) return c.ctl({ t: 'error', op: 'data', code: 'not_in_room' });
     if (bytes.byteLength === 0 || bytes.byteLength > MAX_PACKET) {
       return c.ctl({ t: 'error', op: 'data', code: 'bad_size' });
@@ -203,6 +236,7 @@ export class Relay {
 
   disconnect(c) {
     if (!this.clients.has(c.id)) return;
+    if (c.serves) this.unserve(c);
     this.leave(c, 'disconnected');
     this.clients.delete(c.id);
     this.log(`bye ${c.id} ${c.name ?? ''}`);

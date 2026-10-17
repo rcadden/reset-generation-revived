@@ -3,6 +3,7 @@
 #include "engine.h"
 #include "host.h"
 #include "net.h"
+#include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +45,7 @@ int rg_init(const char *dll_path, const char *game_dir, int width, int height, c
     rt_dispatch_init();
     if (!rt_load_image(&img, dll_path, game_dir)) return 0;
     rt_jni_init();
+    rg_server_init();
     env = rt_jni_env();
     engine_obj = rt_jni_new_object("rg/natives/NativeGameEngine");
     listener_obj = rt_jni_new_object("rg/natives/NativeInputEventListener");
@@ -105,6 +107,7 @@ int rg_init(const char *dll_path, const char *game_dir, int width, int height, c
 
 int rg_tick(void) {
     net_dispatch_events();
+    rg_server_pump();
     return (int)(call(x_tick, 2, env, engine_obj) & 0xff);
 }
 

@@ -146,6 +146,17 @@ void rt_trace(uint32_t func) {
     }
 }
 
+static struct { uint32_t func; rt_hook_fn fn; } hooks[16];
+static int nhooks;
+void rt_hook_add(uint32_t func, rt_hook_fn fn) {
+    if (nhooks >= 16) rt_fatal("too many hooks");
+    hooks[nhooks].func = func;
+    hooks[nhooks++].fn = fn;
+}
+void rt_hook(uint32_t func) {
+    for (int i = 0; i < nhooks; i++) if (hooks[i].func == func) hooks[i].fn();
+}
+
 /* Calls guest function `addr` from the host with stdcall/cdecl arguments; returns EAX. */
 uint32_t rt_guest_call(uint32_t addr, int nargs, const uint32_t *args) {
     uint32_t saved_esp = cpu.r[ESP];
@@ -157,6 +168,14 @@ uint32_t rt_guest_call(uint32_t addr, int nargs, const uint32_t *args) {
     rt_call(addr);
     cpu.r[ESP] = saved_esp;
     return cpu.r[EAX];
+}
+
+uint32_t rt_guest_thiscall(uint32_t addr, uint32_t ecx, int nargs, const uint32_t *args) {
+    uint32_t saved_ecx = cpu.r[ECX];
+    cpu.r[ECX] = ecx;
+    uint32_t r = rt_guest_call(addr, nargs, args);
+    cpu.r[ECX] = saved_ecx;
+    return r;
 }
 
 /* ------------------------------------------------------------------ helpers */

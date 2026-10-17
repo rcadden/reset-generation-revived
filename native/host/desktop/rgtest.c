@@ -8,6 +8,7 @@
  * at frame F and released 6 frames later (names: RETURN ESC UP DOWN LEFT RIGHT CTRL SPACE). */
 #include "engine.h"
 #include "host.h"
+#include "server.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,12 @@ static LONG WINAPI on_crash(EXCEPTION_POINTERS *e) {
             (unsigned long long)(a - (uintptr_t)M), cpu.r[ESP], rt_last_call);
     fprintf(stderr, "  last stub %s, host pc offset 0x%llx\n", rt_stub_name(rt_last_call), (unsigned long long)((uintptr_t)e->ExceptionRecord->ExceptionAddress - (uintptr_t)GetModuleHandleA(NULL)));
     rt_dump_calltrace();
+    if (getenv("RT_CRASH_STACK")) {   /* return addresses on the host stack (resolve with llvm-addr2line, image base 0x140000000) */
+        uintptr_t base = (uintptr_t)GetModuleHandleA(NULL), *sp = (uintptr_t *)e->ContextRecord->Rsp;
+        fprintf(stderr, "host stack:");
+        for (int i = 0; i < 48; i++) if (sp[i] > base && sp[i] < base + 0x2000000) fprintf(stderr, " %llx", (unsigned long long)(sp[i] - base + 0x140000000ull));
+        fputc(10, stderr);
+    }
     fflush(stderr);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -100,6 +107,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--size") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &w, &h);
         else if (!strcmp(argv[i], "--every") && i + 1 < argc) every = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--realtime")) realtime = 1;
+        else if (!strcmp(argv[i], "--server") && i + 2 < argc) { rg_server_enable(argv[i + 1], argv[i + 2]); i += 2; }
         else if (!strcmp(argv[i], "--shots") && i + 1 < argc) {
             char *s = strdup(argv[++i]);
             for (char *t = strtok(s, ","); t; t = strtok(NULL, ",")) { int f = atoi(t); if (f >= 0 && f < 100000) shot[f] = 1; }
