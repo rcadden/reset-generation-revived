@@ -2,7 +2,8 @@
 
 Read `README.md`, then the doc for the area you touch (`docs/`). Work on `dev`; `main` only on
 explicit instruction. Public repo: github.com/rcadden/reset-generation-revived. Never commit personal paths/emails or
-third-party binaries, paks or decompiled code (`decompiled/` is git-ignored).
+decompiled code (`decompiled/` is git-ignored). The original game files in `game/` are included
+with permission; keep them pristine (patch at build/launch time, never in place).
 
 ## Facts that are easy to get wrong
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds dist/ResetGeneration-Revived: a self-contained Windows app (32-bit Java runtime + game).
-# Needs: the original ResetGeneration-Standalone.zip in the project root and a 32-bit JDK 17.
+# Needs: the original game files in game/ (checked in) and a 32-bit JDK 17.
 set -e
 R="$(cd "$(dirname "$0")/.." && pwd)"
 JDK=${JDK:-/c/dev/toolchains/jdk-17.0.17+10}
@@ -10,14 +10,13 @@ APP=ResetGeneration-Revived
 w() { cygpath -w "$1"; }
 
 rm -rf "$B" "$OUT/$APP"
-mkdir -p "$B/orig" "$B/classes" "$B/jar" "$B/input" "$OUT"
+mkdir -p "$B/classes" "$B/jar" "$B/input" "$OUT"
 
-# 1. Pristine game files straight from the original download.
-unzip -q "$R/ResetGeneration-Standalone.zip" -d "$B/orig"
-G="$B/orig/ResetGeneration-Standalone"
+# 1. Pristine game files (game/ = the 2020 standalone without its old JRE).
+G="$R/game"
 
 # 2. Compile the Revived launcher + patched classes against the original jars.
-(cd "$R/src/java" && "$JDK/bin/javac" -nowarn --release 8 -encoding UTF-8 \
+(cd "$R/src/java" && "$JDK/bin/javac" -nowarn --release 17 -encoding UTF-8 \
   -cp "$(w $G/ResetGeneration.jar);$(w $G/lib/rg-signed.jar)" \
   -d "$(w $B/classes)" $(find . -name '*.java'))
 
@@ -34,7 +33,7 @@ cp "$G/lib/rg-signed.jar" "$B/input/"
   --input "$(w $B/input)" --main-jar ResetGenerationRevived.jar --main-class rg.Revived \
   --icon "$(w $R/src/assets/icon.ico)" --app-version 1.0.0 \
   --vendor "Reset Generation Revived" --description "Reset Generation (RedLynx/Nokia, 2008) for modern Windows" \
-  --add-modules java.base,java.desktop,jdk.jsobject \
+  --add-modules java.base,java.desktop,java.net.http,jdk.jsobject \
   --jlink-options "--strip-debug --no-header-files --no-man-pages --compress=2" \
   --java-options "-Dsun.java2d.uiScale=1" --java-options "-Xss1m"
 

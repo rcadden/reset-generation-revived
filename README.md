@@ -19,8 +19,8 @@ Windows in widescreen HD, with a plan for Android and for our own multiplayer se
 ## Layout
 
 ```
-ResetGeneration-Standalone.zip   original 2020 standalone of the web version (input; git-ignored)
-Reset.Generation.n-gage          original N-Gage 2.0 package (reference only; git-ignored)
+game/                            the original game files (engine DLL, jars, data paks) — everything needed to play
+Reset.Generation.n-gage          original N-Gage 2.0 package (reference only, DRM-encrypted; git-ignored)
 src/java/rg/                     Revived launcher + patched wrapper classes (Java 8 bytecode)
 src/assets/, src/dist/           icon, default revived.ini, player README
 tools/                           build script, extractors (SIS, pak, gfx), test drivers, Ghidra export
