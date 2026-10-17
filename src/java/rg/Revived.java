@@ -243,6 +243,22 @@ public class Revived extends StandaloneClient {
                 + ", window x" + windowScale + (startFullscreen ? ", fullscreen" : ""));
     }
 
+    /**
+     * Online play goes through our relay server (server/, docs/MULTIPLAYER.md) instead of the
+     * dead N-Gage Arena. There are no accounts: the nickname is generated once and saved.
+     */
+    static void configureOnline() {
+        com.redlynx.mt.snapmobile.SNAPMobileClient.relayUrl = opt("server", "ws://127.0.0.1:8787/ws");
+        String nick = opt("nickname", "");
+        if (!com.redlynx.mt.snapmobile.SMArenaValidator.isValidArenaUsername(nick)) {
+            nick = "Player" + (1000 + new java.util.Random().nextInt(9000));
+            config.setProperty("nickname", nick);
+            saveConfig();
+        }
+        com.redlynx.mt.snapmobile.SNAPMobileClient.nickname = nick;
+        System.out.println("Revived: online server " + com.redlynx.mt.snapmobile.SNAPMobileClient.relayUrl + " as " + nick);
+    }
+
     public static void main(String[] args) {
         System.setProperty("sun.java2d.uiScale", "1");
         System.setProperty("sun.awt.noerasebackground", "true");
@@ -268,6 +284,7 @@ public class Revived extends StandaloneClient {
         ResetGeneration.SCREEN_H = renderHeight;
         ResetGeneration.DOUBLE_PIXELS = true;
         ResetGeneration.CLEAR_EACH_FRAME = true;
+        configureOnline();
         new Revived("Reset Generation");
     }
 }

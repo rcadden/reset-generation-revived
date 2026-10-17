@@ -162,7 +162,7 @@ rt_jvalue rt_java_call(uint32_t obj, const char *name, const char *sig, const rt
         else if (!strcmp(name, "loginWasCancelled")) r.i = net_login_cancelled();
         else if (!strcmp(name, "isLoggedIn")) r.i = net_is_logged_in();
         else if (!strcmp(name, "login")) r.i = net_login();
-        else if (!strcmp(name, "logout")) net_logout();
+        else if (!strcmp(name, "logout")) { if (getenv("RT_NET_DEBUG")) rt_dump_calltrace(); net_logout(); }
         else if (!strcmp(name, "createRoom")) { net_room("create", s0); r.l = rt_jni_new_string(s0 ? s0 : ""); }
         else if (!strcmp(name, "joinRoom")) net_room("join", s0);
         else if (!strcmp(name, "moveToRoom")) net_room("move", s0);

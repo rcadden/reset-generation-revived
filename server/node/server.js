@@ -13,7 +13,10 @@ const HOST = arg('host', process.env.HOST ?? '0.0.0.0');
 const IDLE_MS = 60_000;      // clients ping every 15 s
 const quiet = process.argv.includes('--quiet');
 
-const relay = new Relay({ log: quiet ? () => {} : (s) => console.log(new Date().toISOString(), s) });
+const relay = new Relay({
+  log: quiet ? () => {} : (s) => console.log(new Date().toISOString(), s),
+  logPackets: process.argv.includes('--log-packets'),
+});
 
 const server = http.createServer((req, res) => {
   if (req.url === '/status') {

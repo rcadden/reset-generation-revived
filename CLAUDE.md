@@ -18,17 +18,31 @@ with permission; keep them pristine (patch at build/launch time, never in place)
 * The engine only draws when ahead of its 32 fps schedule (frame limiter on `timeGetTime`);
   hosts must supply time and let `Sleep()` advance it.
 * No floating point in the engine's hot code (fixed-point).
+* The engine's clock must start small: it misbehaves with large `timeGetTime` values (long
+  uptimes), so hosts rebase it (`rt_now_ms` starts at 5,000,000).
+* Android/native = **static recompilation**: Ghidra P-code (`tools/ghidra_export.sh`) →
+  `tools/recomp/recomp.py` → C. Code only reachable through vtables/stored callbacks must be
+  recovered by the export's pre-pass; an "unknown address" fatal means a missed entry point.
+* Online: the engine waits for the room's server to speak first; `CasinoSystem` is served by
+  the casino bot in `server/src/casino.js`. The in-room protocol (seating, match) is not done.
 
 ## Tools
 
 * `tools/build_windows.sh` — full release build into `dist/`.
-* `tools/run_revived.sh [--render_height=N …]` — run compiled classes against `extracted/standalone/`.
+* `tools/build_android.sh` — APK into `dist/` (NDK + aapt2, no Gradle). `tools/build_native_desktop.sh`
+  — `C:\dev\rgbuild\rgtest.exe`, headless test driver (`EXTRA_CFLAGS=-DRT_CALLTRACE`,
+  `RECOMP_ARGS="--trace addr,…"` for debugging). Native build output stays in `C:\dev\rgbuild`
+  (never in OneDrive).
+* `server/` — relay + casino: `npm start`, `npm test`, `--log-packets`.
+* `tools/setup_dev.sh` then `tools/run_revived.sh [--render_height=N …]` — run compiled classes against `extracted/standalone/`.
 * `tools/k.sh "KEYS" name [width]` — send keys (`RETURN,ESC,UP,DOWN,LEFT,RIGHT,CTRL,F11,WAIT500`)
   to the game window and screenshot to the session scratchpad. `tools/killgame.sh` kills only the
   game JVM (never `taskkill java.exe` — Ghidra is also a JVM).
 * `tools/pak.py`, `tools/gfx.py`, `tools/sisx.py`, `tools/split_ngage.py` — data extraction.
 * `tools/emu/rgemu.py` — engine under Unicorn emulation (oracle for the Android recompiler).
 * Ghidra 12.1.4 at `C:\dev\toolchains\ghidra_12.1.4_PUBLIC`, project `C:\dev\ghidra_proj\RG`.
+* Android SDK at `C:\dev\toolchains\android-sdk` (NDK 29, build-tools 36, emulator; AVD `rgtest` in
+  `C:\dev\avd`, WHPX-accelerated); llvm-mingw at `C:\dev\toolchains\llvm-mingw-20261006-ucrt-x86_64`.
 
 ## Python
 

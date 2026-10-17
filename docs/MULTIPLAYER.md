@@ -1,107 +1,136 @@
-# Multiplayer: can we run our own server?
+# Multiplayer: our own server for Quick Match / Online
 
-**Short answer: yes, and it is a small server.** The game's netcode is peer-to-peer *through a
-relay*: the engine does its own matchmaking and game logic on top of generic "named rooms" and
-broadcast "game packets". The server never runs game rules. Its simulation is deterministic
-fixed-point integer code, so clients stay in sync by exchanging inputs.
+Status (2026-10-17):
+
+| Piece | State |
+|---|---|
+| Relay server (`server/`, Node + Cloudflare Worker) | **Done**, 7 end-to-end tests |
+| Client: Windows (Java replacement for `SNAPMobileClient`) | **Done** — logs in to the relay with a nickname, no Arena login screen |
+| Client: native/Android (`native/rt/net.c`) | **Done** (plain `ws://` only) |
+| Casino system (login, casino enter, Quick Match queue, matched-up) | **Done** — players reach the "Players in Match" screen of a shared game room |
+| In-room protocol (seating, then the lockstep match itself) | **Open** — matched players see only themselves ("Waiting for Players…"); see "Next step" |
+| Friendly arenas, rankings, statistics, achievements, friends | Answered with empty/OK replies so the client does not stall; not implemented |
 
 ## How online worked in 2008–2010
 
-* Service: Nokia **SNAP Mobile** (client library v1.4.4 in `lib/rg-signed.jar`), branded
-  N-Gage Arena. Gateway `resetgeneration-gw.arena.n-gage.com`, lobby `resgen`, game class
-  `42713`, connectors `tcp,http:80`. Shut down with N-Gage Arena (2010).
-* Layers:
+Nokia **SNAP Mobile** (N-Gage Arena) provided accounts, named game rooms and per-room "game
+servers". RedLynx's Java glue (`com.redlynx.mt.snapmobile`) exposes rooms and packets to the
+native engine; everything above that — the engine's **MT** networking layer, the casino
+(matchmaking) protocol, seating, and the match itself — is in the engine DLL.
 
 ```
-native engine  ──(JNI: NativeSNAPMobileInterface / NativeSNAPMobileEventListener)──►
-  Java SNAPMobileClient (RedLynx glue: action queue + event queue, own thread)
-    ──► com.nokia.sm.net.ServerComm (SNAP protocol) ──► TCP :8976 or HTTP POST /perl/sm
+engine MT layer ──JNI──► SNAPMobileClient (Java)  ──►  SNAP server: rooms, game servers
+                         replaced by: Java client / native net.c ──WebSocket──► our relay
 ```
 
-### The engine-facing contract (what we must provide)
+### Engine-facing contract (unchanged)
 
-Engine → host calls (`NativeSNAPMobileInterface`):
+Engine → host (`NativeSNAPMobileInterface`): `init`, `startLoginScreen`, `getLoginScreenStatus`,
+`login`, `logout`, `isLoggedIn`, `createRoom`, `joinRoom`, `moveToRoom`, `leaveRoom`,
+`send(len)` (bytes in the shared 2 KB buffer), friends/presence calls.
+Host → engine (`NativeSNAPMobileEventListener`): `onArenaLoginCompleted/Cancelled`,
+`onConnected` (joined a room), `onDataReceived(len, room)`, `onDisconnectedFromGameRoom`,
+`onDisconnectedFromNAF`, `onFriendList`, ….
 
-| Call | Meaning |
+## Relay protocol (ours)
+
+WebSocket at `/ws`. Text frames are JSON control messages, binary frames are game packets.
+
+| Client → server | Server → client |
 |---|---|
-| `startLoginScreen()`, `stopLoginScreen()`, `getLoginScreenStatus()`, `login()`, `logout()`, `isLoggedIn()`, `loginWasCancelled()` | Account login flow (status codes 0–7: in login screen … logged in, failed, auth error, could not connect) |
-| `createRoom(name)`, `joinRoom(name)`, `moveToRoom(name)`, `leaveRoom(name)` | Named game rooms, max 4 players (`createGameRoom(name, null, 4, 1, -1)`) |
-| `send(len)` | Broadcast `len` bytes from the shared 2 KB `netBuffer` to the room |
-| `getFriendList()`, `send/accept/decline/removeFriend(name)`, `setPresence(availability, text)` | Friends and presence (optional for a first server) |
+| `{"t":"hello","v":1,"name":"Nick"}` | `{"t":"welcome","id","name"}` (name made unique) |
+| `{"t":"create"\|"join"\|"move","room":"X"}` | `{"t":"joined","room","members":[…]}` or `{"t":"error","code":"not_found"\|"full"…}` |
+| `{"t":"leave"}` | `{"t":"left"}`; others get `peer_joined` / `peer_left` |
+| `{"t":"ping"}` | `{"t":"pong"}` |
+| `{"t":"rooms"}` | `{"t":"rooms","rooms":[…]}` |
+| binary packet (≤ 2048 bytes) | relayed in order to the other room members — except in `CasinoSystem` |
 
-Host → engine callbacks (`NativeSNAPMobileEventListener`): `onArenaLoginCompleted/Cancelled`,
-`onArenaLogoutCompleted`, `onConnected` (joined room), `onDataReceived(len, roomName)` (bytes
-placed in the shared buffer), `onDisconnectedFromGameRoom(room)`, `onDisconnectedFromNAF(code)`,
-`onFriendList(names[], presences[], states[])`, `onFriendRequest*`, `onFriendRemoved`,
-`onPresence(name, availability, text)`, `onError(code, text)`.
+Rooms hold 4 players; `CasinoSystem` is a permanent lobby (1,000) whose packets go to the
+casino bot instead of other players. The bot behaves like an MT peer: it opens with a
+transport hello (channel 2 `00`) and the keep-alive frame, accepts the client's hello (`20`),
+answers its pings and pings every 10 s. Without the hello the client never starts its own
+keep-alive and drops the connection ("Connection lost") 20 s after entering the casino.
 
-The engine's own room-naming scheme handles quick match / private games, so the server only
-needs rooms, membership, ordered broadcast and disconnect notification.
+**Room greeting.** The engine only starts talking in a room after the room's server has
+spoken. The relay sends each joiner one frame (`05 00 01 20 4e 00 00`); for rooms the
+matchmaker created it waits until all matched players are present (max 10 s), because the
+engine's handshake packets are lost on players who have not joined yet.
 
-### The original wire protocol (for reference / a compatible server)
+## The engine's wire format (reconstructed)
 
-* **Requests**: URL-encoded text `V=<ver>&S=<snapSessionID>&C=<command>&P1=…&P2=…` — over HTTP
-  (`POST http://<gw>:80/perl/sm?`) or a framed TCP connection to port **8976** (hello/hello_ack
-  handshake, 16-bit request IDs, async callbacks). Some parameters (passwords, keys) are
-  obfuscated with a simple per-command rotate-and-XOR using 16 hard-coded keys (implemented in
-  `decompiled/rg-signed/i.java`, generated locally), others are base64.
-* **Responses**: first line `200 OK` (or an error code + message), then fields separated by
-  `|`, `,` and newlines in a fixed order per command; the field schemas for every command are
-  tabled in `decompiled/rg-signed/r.java` (e.g. login returns
-  `webSessionID|impsSessionID|snapSessionID|snapUserID|buddyList|messageList`).
-* **Events** are delivered by polling `retrieveAllEvents` (command 3) / listening; each event
-  line starts with an event ID: 103/104 user joined/left lobby, 105/106 room created/deleted,
-  107/108 user joined/left room, 109–111 attribute/property changes, 112–115 chat,
-  **116/117 game data** (`from|+gameData`, base64), 301–312 IM/presence/buddy events.
-* Commands used by Reset Generation: 1 `extendedLogin`, 104 `logoutClient`, 109 `joinLobby`,
-  113 `selectGameRooms`, 116 `createGameRoom`, 117 `joinGameRoom`, 118 `leaveGameRoom`,
-  125 `getGameRooms`, 127 `getUsersInGameRoom`, 133 `sendGamePacketToGameServer`,
-  3/130/311 event retrieval, plus buddy/presence commands.
+Inside a game packet: one or more frames `[u16 length][u8 channel][payload]`, little-endian.
 
-## Options for a new server
+| Channel | Use |
+|---|---|
+| 1 | keep-alive: `u32 20000` on join (peer timeout, ms), then 1-byte sequence pings |
+| 2 | transport control: `00` = hello on join, `20` = accept, 1-byte ping replies (same sequence) |
+| 3 | key/value "command": session hello (`name`, `pid`, `passwd`, `roomname` = room URL, …) |
+| 0x11 | casino-system messages |
+| 0x12 / 0x13 | messages to a matchmaker / friendly casino |
+| 0x15 | seating in a game room (`SEAT_RESERVE`/`SEAT_TAKE`/`SEAT_LEAVE` + `u32` player id) |
 
-| Option | Server | Client changes | Verdict |
-|---|---|---|---|
-| 1. **SNAP-compatible emulator** | Re-implement the ~15 SNAP commands above, text protocol, TCP 8976 + HTTP | None in the game code: launch with `-gw <our-host>` (the wrapper already supports it) | Works with the stock Java client, but locks us into the 2008 protocol and its quirks; awkward on Android where the host is native. |
-| 2. **Own protocol (recommended)** | Small WebSocket room relay: `hello{name}`, `join{room}`, `leave`, `data{bytes}` → broadcast to other members in order, `members`/`left` notifications, heartbeat | Replace the Java `SNAPMobileClient` with a thin client that implements the same engine-facing contract (table above) over WebSocket; later the native host (Android/Windows) implements it in C | Simple, modern, TLS, works through firewalls/mobile networks, one implementation for Windows and Android, cross-play. |
+Casino messages: `[u8 type][u8 action]` + fields; type 0 REQUEST, 1 RESPONSE, 2 EVENT; the
+42 actions are in `server/src/casino.js` (`ACTIONS`). Strings are the engine's string object
+`[u32 refcount|flags][u32 length][u32 capacity][bytes]` (flags bits 28–30 = 2: UTF-16).
+Key/value maps: `u32 count` + key/value string pairs. A generic RESPONSE is `[u8 result
+(0 = OK)][u32 value]`.
 
-### Recommended architecture
+Messages the bot handles (the engine's deserializers are the reference; addresses are in the
+engine DLL):
 
+| Message | Layout |
+|---|---|
+| REQUEST `CASINOSYSTEM_LOGIN` | `u32 1`, string `"Reset Generation v. 1.1.3"` |
+| RESPONSE login | generic + profile map + `u8 1` + casino descriptor |
+| profile map | `id`, `name`, `fameLevel`, `heroType`, `random` (the client crashes on a missing key) |
+| casino descriptor | `u8 kind` (1 matchmaker, 2 friendly), `u32 id`, 3 × `u32`, string name |
+| REQUEST `CASINO_ENTER` (ch 0x12) | `u32 casino id` → RESPONSE generic + profile map + casino descriptor |
+| REQUEST `CASINO_MATCHMAKING` | string hero (`PLUMBER`…), string random (`FALSE`) → RESPONSE generic + `u8 n` + n maps |
+| EVENT `CASINO_MATCHED_UP` | string casino name, table: string room, string address, `u8`, `u8`, `u32` players, settings (`u8 0`, `u8`, string address, `u8`) |
+
+The address is an MT URL: `naf://rg.com:80/QM_1?hosted=yes`. The path is the SNAP room the
+client moves to; `hosted` decides whether it creates or joins it. (A `room=` query parameter
+breaks the client's room check — leave it out.) The login and casino flow also includes
+`GET_STATISTICS`, `GET_ACHIEVEMENTS`, `REGISTER_FRIENDS` and `GET_FRIENDLY_CASINO_LIST`,
+currently answered with empty OK responses.
+
+## Running a server
+
+```bash
+cd server
+npm install
+npm start                       # ws://0.0.0.0:8787/ws   (--log-packets to hex-dump traffic)
+npm test
+npx wrangler login && npx wrangler deploy     # Cloudflare (Durable Object), wss://…workers.dev/ws
 ```
-Game (Windows Java build, later native host, Android)
-   └─ RevivedNet client: implements NativeSNAPMobileInterface contract
-         └─ WebSocket (wss://rg.<domain>/ws)
-               └─ Cloudflare Worker (router) → Durable Object per room name
-                     · ordered broadcast of data frames to the other ≤3 members
-                     · join/leave/disconnect events, idle-room cleanup
-                     · guest identity (nickname + random ID); optional account later
-```
 
-Cloudflare Workers + Durable Objects fit the workspace's stack (Cloudflare preferred), cost
-nothing at hobby scale, and a Durable Object per room gives exactly the ordered, single-writer
-semantics the relay needs. A Node.js server (~200 lines) is an equivalent self-host option.
+Clients: Windows `app\revived.ini` → `server=ws://<host>:8787/ws`, `nickname=…`.
+Android: `files/revived.ini` in the app's storage (or the APK's built-in default,
+`tools/build_android.sh SERVER=ws://…`). The native client speaks `ws://` only for now, so
+Android needs a self-hosted server (LAN or a VPS) until TLS is added; the Java client supports
+`wss://` (Cloudflare).
 
-Login: replace the Arena username/password screen with a nickname prompt (or skip it entirely
-and use a stored random nickname). Friends/presence can come later (Supabase table
-`resetgen__friends`, per the one-Supabase-project rule).
+## Next step: the game room
 
-### Work breakdown
+After `CASINO_MATCHED_UP`, every player moves to the room, gets the greeting, and sends:
+channel 2 `00`, a channel-3 hello (with its `pid` = profile `id`), channel 0x15
+`REQUEST SEAT_TAKE(pid)`, then periodic pings. The host answers the channel-2 handshake
+(`20`), but no client processes the seating messages (the engine's seating handler at
+`0x100ce230` never runs), and the "Players in Match" list stays at one player.
 
-1. **Capture the packet format** — run two local instances with a logging relay to confirm packet
-   sizes/rates and that games stay in sync (determinism check). The engine's `send()` limit is
-   2 KB per packet.
-2. **Relay server** (Durable Object or Node) with room lifecycle and tests.
-3. **Java client** replacing `SNAPMobileClient` (keep the action/event queue structure so the
-   engine sees identical callback timing); nickname login UI; hide friends UI until supported.
-4. **Native host client** (C, for Android/Windows native host) implementing the same contract.
-5. Nice-to-haves: reconnect within a match, simple server-side room listing for a lobby browser,
-   ranking/stats (the original had `reportScores`/rankings).
+Most likely, as with `CasinoSystem`, each SNAP game room had a **server-side game server**
+that terminated the MT connections (handshake, seating, relaying between players), so
+clients only ever talked to it, never directly to each other. The client DLL contains the
+server-side request parsers, so the reconstruction path is the same as for the casino:
 
-Estimated effort: 1–2 weeks for options 2.1–2.3 (desktop cross-play), +1 week for the native client.
+1. Trace the receive path for channels 2 and 0x15 (`RT_LIVE_TRIGGER=1010ff60:N` in an
+   `RT_CALLTRACE` desktop build) to see why peer frames are dropped, and decode the
+   channel-2 handshake states.
+2. Implement a per-room game-server bot in `server/src/` (like `casino.js`) that answers the
+   handshake and seating, announces seated players, and forwards game frames.
+3. Verify with two `rgtest` clients (`RG_NICK=Alice …` / `RG_NICK=Bob …`, Quick Match
+   keys) until the match starts, then check lockstep sync over a full match.
 
-## Open questions
-
-* Whether matches use a host/authority player or pure lockstep (affects disconnect handling).
-  To be confirmed in step 1 by logging packets.
-* Version compatibility: the N-Gage builds cannot connect (they talk to Nokia's dead servers
-  with DRM'd clients) — cross-play is between our builds only.
+Tools for this: `tools/build_native_desktop.sh` with `EXTRA_CFLAGS=-DRT_CALLTRACE` and
+`RECOMP_ARGS="--trace <hex,…>"` (function-entry logging, kv-key and connect-address dumps in
+`native/rt/rt.c`), `RT_NET_DEBUG=1`, relay `--log-packets`.

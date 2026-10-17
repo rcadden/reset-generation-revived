@@ -1,21 +1,25 @@
 // Reset Generation Revived multiplayer relay: named rooms + ordered broadcast.
 //
 // Transport-independent core shared by the Node server (node/server.js) and the
-// Cloudflare Worker (worker/index.js). The game engine runs its own matchmaking
-// and lockstep game logic on top of SNAP Mobile-style "game rooms"; the server only
-// needs rooms (max 4 players), membership, ordered broadcast and disconnect notices.
+// Cloudflare Worker (worker/index.js). It stands in for N-Gage Arena's SNAP game rooms:
+//   * CasinoSystem: the permanent lobby; its "game server" is the matchmaker bot in
+//     casino.js (login, Quick Match queue, matched-up events naming a game room).
+//   * game rooms (max 4 players): packets are relayed to the other members in order.
+// The engine only starts talking in a room after the room's server has spoken, so every
+// joiner gets a greeting frame (matchmade rooms: once all matched players are present).
 //
 // Protocol (WebSocket; see docs/MULTIPLAYER.md):
 //   text frames  = JSON control messages {"t": <type>, ...}
-//   binary frames = one game packet (<= MAX_PACKET bytes), relayed to the other
-//                   members of the sender's room in arrival order.
+//   binary frames = one game packet (<= MAX_PACKET bytes)
+
+import { Casino, CH_SYSTEM, Writer, frame } from './casino.js';
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_PACKET = 2048;          // the engine's shared net buffer
 export const MAX_ROOM_MEMBERS = 4;       // createGameRoom(name, null, 4, ...)
 export const MAX_NAME = 15;              // SMArenaValidator
 // Permanent lobby rooms the original SNAP server provided. The engine joins "CasinoSystem"
-// first and runs its matchmaking there (broadcast packets), then moves to a 4-player room.
+// first and does its matchmaking with the casino bot there, then moves to a game room.
 export const LOBBY_ROOMS = { CasinoSystem: 1000 };
 const NAME_RE = /^[A-Za-z0-9_]{1,15}$/;
 const ROOM_RE = /^[\x20-\x7e]{1,64}$/;
@@ -36,15 +40,18 @@ class Client {
 }
 
 export class Relay {
-  constructor({ log = () => {}, now = () => Date.now() } = {}) {
+  constructor({ log = () => {}, now = () => Date.now(), logPackets = false } = {}) {
+    this.logPackets = logPackets;
     this.clients = new Map();   // id -> Client
     this.rooms = new Map();     // lower-case room name -> {name, members: Set<Client>, created}
     this.nextId = 1;
+    this.expected = new Map();  // matchmade room -> {count, until}
     this.log = log;
     this.now = now;
     this.stats = { packets: 0, bytes: 0, connections: 0 };
     for (const [name, max] of Object.entries(LOBBY_ROOMS)) {
-      this.rooms.set(name.toLowerCase(), { key: name.toLowerCase(), name, members: new Set(), created: this.now(), max, permanent: true });
+      this.rooms.set(name.toLowerCase(), { key: name.toLowerCase(), name, members: new Set(), created: this.now(), max, permanent: true,
+        bot: new Casino({ send: (client, bytes) => client.send(bytes), log, expectRoom: (n, k) => this.expectRoom(n, k) }) });
     }
   }
 
@@ -133,13 +140,41 @@ export class Relay {
     c.room = room;
     this.log(`${c.name} -> ${room.name} (${room.members.size})`);
     c.ctl({ t: 'joined', op, room: room.name, members: this.memberNames(room) });
+    if (room.bot) room.bot.join(c);
+    else this.greet(room);
     for (const o of room.members) if (o !== c) o.ctl({ t: 'peer_joined', room: room.name, name: c.name });
+  }
+
+  /** The matchmaker announces how many players a game room will have. */
+  expectRoom(name, count) {
+    this.expected.set(name.toLowerCase(), { count, until: this.now() + 10_000 });
+  }
+
+  /**
+   * The engine starts talking in a room only after the room's "game server" has spoken, and
+   * its handshake is lost on players who are not there yet. So matchmade rooms are greeted
+   * once everyone has arrived (or after 10 s); other rooms greet each joiner at once.
+   */
+  greet(room) {
+    const exp = this.expected.get(room.key);
+    if (exp && room.members.size < exp.count && this.now() < exp.until) {
+      if (!room.greetTimer) room.greetTimer = setTimeout(() => { room.greetTimer = null; this.greet(room); }, exp.until - this.now() + 10);
+      return;
+    }
+    if (room.greetTimer) { clearTimeout(room.greetTimer); room.greetTimer = null; }
+    this.expected.delete(room.key);
+    const hello = frame(CH_SYSTEM, new Writer().u32(20000).bytes());
+    for (const m of room.members) {
+      if (!m.greeted?.has(room)) { (m.greeted ??= new Set()).add(room); m.send(hello); }
+    }
   }
 
   leave(c, reason) {
     const room = c.room;
     if (!room) return reason === 'left' ? c.ctl({ t: 'left', room: null }) : undefined;
     room.members.delete(c);
+    c.greeted?.delete(room);
+    if (room.bot) room.bot.leave(c);
     c.room = null;
     if (reason === 'left') c.ctl({ t: 'left', room: room.name });
     for (const o of room.members) o.ctl({ t: 'peer_left', room: room.name, name: c.name, reason });
@@ -157,6 +192,8 @@ export class Relay {
     }
     this.stats.packets++;
     this.stats.bytes += bytes.byteLength;
+    if (this.logPackets) this.log(`pkt ${c.name}@${c.room.name} ${bytes.byteLength}: ${Buffer.from(bytes).toString('hex')}`);
+    if (c.room.bot) return c.room.bot.packet(c, bytes);    // server-side logic, not broadcast
     for (const o of c.room.members) if (o !== c) o.send(bytes);
   }
 

@@ -73,6 +73,10 @@ tools/build_android.sh            # -> dist/ResetGeneration-Revived-<version>.ap
 
 ## Android app
 
+Install the debug APK by sideloading: copy `dist/ResetGeneration-Revived-<version>.apk` to the
+phone and open it (allow "install unknown apps" for the file manager), or
+`adb install -r dist/ResetGeneration-Revived-<version>.apk`.
+
 * NativeActivity with no Java code; min SDK 26 (Android 8), target 36; arm64-v8a + x86_64,
   16 KB page-aligned native library.
 * Game data ships as assets and is copied to internal storage on first launch of each build
@@ -89,12 +93,28 @@ tools/build_android.sh            # -> dist/ResetGeneration-Revived-<version>.ap
 
 ## Testing
 
-`rgtest.exe <dll> <data dir> <frames> <out dir> [--keys F:KEY,...] [--every N]` runs the engine
-on a virtual clock, writes `hashes.txt` (framebuffer hash per frame) and PPM screenshots.
-The same input script can be run through `tools/emu/rgemu.py` to compare against the
-emulated original.
+`rgtest.exe <dll> <data dir> <frames> <out dir> [--keys F:KEY,...] [--every N] [--realtime]`
+runs the engine (virtual clock unless `--realtime`), writes `hashes.txt` (framebuffer hash per
+frame) and PPM screenshots. `RG_NICK` / `RG_SERVER` set the online identity.
+
+Verified (2026-10-17): boot, intro, menus, wipes, tutorial with input on the desktop driver;
+the APK on an Android 15 x86_64 emulator (intro, menu, touch d-pad/Select into a mode);
+Quick Match through login, casino and matchmaking against the local relay.
+
+Differential testing against the original: `RT_API_TRACE=file rgtest …` and
+`py -I tools/emu/rgemu.py <dir> <out> <frames> 640 360 --api-trace file` log every Win32/JNI
+call; the first divergence points at the bug (155,659 calls matched after the fixes).
+
+Debug build (`EXTRA_CFLAGS=-DRT_CALLTRACE tools/build_native_desktop.sh`): crashes print the
+last 48 function entries and the guest call stack; `RECOMP_ARGS="--trace a,b"` logs entries of
+chosen functions; `RT_LIVE_TRIGGER=addr:N` logs the N function entries after `addr`;
+`RT_NET_DEBUG=1` logs incoming packets.
 
 ## Known limits
+
+* On 20:9 phones the side bars are narrow, so the d-pad and Action button overlap the edges of
+  the game image (translucent). A layout option (smaller game, wider bars) would help.
+* Debug-signed APK (`C:\dev\rgbuild\debug.keystore`); a release key is needed for Play.
 
 * The fight-popup position patch (`DllPatcher`) is not in the recompiled build yet; it needs
   the P-code export to be taken from the patched DLL.

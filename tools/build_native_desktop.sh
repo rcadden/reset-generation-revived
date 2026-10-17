@@ -11,7 +11,7 @@ OBJ=$OUT/obj-desktop
 mkdir -p "$OBJ"
 if [ ! -f "$GEN/rg_gen_table.c" ] || [ "$R/tools/recomp/recomp.py" -nt "$GEN/rg_gen_table.c" ] || [ "$R/decompiled/native/pcode.txt" -nt "$GEN/rg_gen_table.c" ]; then
   rm -rf "$GEN"
-  py -I "$R/tools/recomp/recomp.py" "$R/decompiled/native/pcode.txt" "$GEN" --dll "$R/game/ResetGeneration/ResetGeneration-Win32-Web.dll"
+  py -I "$R/tools/recomp/recomp.py" "$R/decompiled/native/pcode.txt" "$GEN" --dll "$R/game/ResetGeneration/ResetGeneration-Win32-Web.dll" ${RECOMP_ARGS:-}
 fi
 CFLAGS="-O2 ${EXTRA_CFLAGS:-} -fno-strict-aliasing -fwrapv -I$R/native/rt -I$GEN"
 ls "$GEN"/*.c | xargs -P 8 -I{} sh -c 'o="'"$OBJ"'/$(basename {} .c).o"; [ "$o" -nt "{}" ] || '"$CC $CFLAGS"' -w -c "{}" -o "$o"'

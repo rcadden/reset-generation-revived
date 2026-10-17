@@ -20,12 +20,15 @@ before(async () => {
 
 after(() => proc?.kill());
 
+const GREETING = Buffer.from('050001204e0000', 'hex');
+
 /** A test client that queues every message it receives. */
-async function client(name) {
+async function client(name, keepGreeting = false) {
   const ws = new WebSocket(url);
   const queue = [];
   const waiters = [];
   ws.on('message', (data, isBinary) => {
+    if (isBinary && !keepGreeting && Buffer.from(data).equals(GREETING)) return;   // room server hello
     const msg = isBinary ? { binary: new Uint8Array(data) } : JSON.parse(String(data));
     const w = waiters.shift();
     if (w) w(msg); else queue.push(msg);
@@ -146,4 +149,70 @@ test('room list, ping and packet limits', async () => {
   a.send({ t: 'ping', ts: 42 });
   assert.deepEqual(await a.next(), { t: 'pong', ts: 42 });
   a.ws.close();
+});
+
+// ---------------------------------------------------------------- casino (matchmaker bot)
+import { Writer, Reader, parseFrames, frame } from '../src/casino.js';
+
+function casinoRequest(ch, action, body = (w) => w) {
+  return frame(ch, body(new Writer().u8(0).u8(action)).bytes());
+}
+
+async function nextCasino(c) {
+  for (;;) {
+    const m = await c.next();
+    if (!m.binary) continue;
+    for (const f of parseFrames(m.binary)) {
+      if (f.ch >= 0x11) { const r = new Reader(f.data); return { ch: f.ch, type: r.u8(), action: r.u8(), r }; }
+    }
+  }
+}
+
+test('casino: greeting, login, enter, quick match pairs two players into a game room', async () => {
+  const players = [await client('Ann', true), await client('Ben', true)];
+  for (const p of players) {
+    p.send({ t: 'join', room: 'CasinoSystem' });
+    assert.equal((await p.next()).t, 'joined');
+    assert.deepEqual(Buffer.from((await p.next()).binary), Buffer.from('02000200', 'hex'));  // transport hello
+    assert.deepEqual(Buffer.from((await p.next()).binary), GREETING);
+    p.ws.send(casinoRequest(0x11, 0, (w) => w.u32(1).str('Reset Generation v. 1.1.3')));
+    const login = await nextCasino(p);
+    assert.deepEqual([login.ch, login.type, login.action, login.r.u8()], [0x11, 1, 0, 0]);
+    login.r.u32();
+    const profile = login.r.kv();
+    assert.equal(profile.name, p === players[0] ? 'Ann' : 'Ben');
+    assert.ok('fameLevel' in profile && 'heroType' in profile);
+    assert.equal(login.r.u8(), 1);                                 // has casino
+    assert.equal(login.r.u8(), 1);                                 // kind: matchmaker
+    p.ws.send(casinoRequest(0x12, 8, (w) => w.u32(1)));
+    const enter = await nextCasino(p);
+    assert.deepEqual([enter.ch, enter.type, enter.action, enter.r.u8()], [0x12, 1, 8, 0]);
+  }
+  for (const p of players) {
+    p.ws.send(casinoRequest(0x12, 9, (w) => w.str('PLUMBER').str('FALSE')));
+    const mm = await nextCasino(p);
+    assert.deepEqual([mm.type, mm.action, mm.r.u8()], [1, 9, 0]);
+  }
+  const rooms = [];
+  for (const p of players) {
+    const ev = await nextCasino(p);
+    assert.deepEqual([ev.type, ev.action], [2, 31]);              // EVENT CASINO_MATCHED_UP
+    ev.r.str();                                                    // casino name
+    const room = ev.r.str(), address = ev.r.str();
+    assert.ok(address.startsWith('naf://') && address.includes('/' + room + '?hosted='), address);
+    rooms.push(room);
+  }
+  assert.equal(rooms[0], rooms[1]);
+  // the game room greets both players only once both are in
+  const joined = async (p) => { let m; do { m = await p.next(); } while (m.t !== 'joined'); return m; };
+  players[0].send({ t: 'move', room: rooms[0] });
+  assert.equal((await joined(players[0])).t, 'joined');
+  await players[0].quiet();
+  players[1].send({ t: 'move', room: rooms[0] });
+  assert.equal((await joined(players[1])).t, 'joined');
+  assert.deepEqual(Buffer.from((await players[1].next()).binary), GREETING);
+  let m;
+  do { m = await players[0].next(); } while (!m.binary);
+  assert.deepEqual(Buffer.from(m.binary), GREETING);
+  for (const p of players) p.ws.close();
 });

@@ -512,6 +512,7 @@ class FuncGen:
         if self.body and self.body[0] != self.entry:
             head.append('    goto L_%x;' % self.entry)
         text = '\n'.join(head + out + ['}', ''])
+        text = text.replace(' return;', ' RT_LEAVE(); return;')
         return text.replace('@SPILL@', spill).replace('@RELOAD@', reload)
 
 

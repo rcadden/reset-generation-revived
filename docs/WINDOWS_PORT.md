@@ -47,7 +47,7 @@ tiny and cutscene art cannot fill it.
 
 ## Build
 
-Requirements: the original `ResetGeneration-Standalone.zip` in the project root, a 32-bit JDK 17
+Requirements: the game files in `game/` (checked in), a 32-bit JDK 17
 (`C:\dev\toolchains\jdk-17.0.17+10`, portable Temurin x86 zip; override with `JDK=`), Git Bash.
 
 ```bash
@@ -57,8 +57,8 @@ tools/build_windows.sh
 Output: `dist/ResetGeneration-Revived/` — `ResetGeneration-Revived.exe`, `runtime/`, `app/`
 (jars, `revived.ini`, `ResetGeneration/` game data), `README.txt`. Zip the folder to distribute.
 
-Developer loop without packaging: `tools/run_revived.sh [--render_height=…]` runs the compiled
-classes against `extracted/standalone/`; `tools/k.sh "KEYS" name` sends keys to the window and
+Developer loop without packaging: `tools/setup_dev.sh` once, then `tools/run_revived.sh
+[--render_height=…]` runs the compiled classes against `extracted/standalone/`; `tools/k.sh "KEYS" name` sends keys to the window and
 takes a screenshot (`tools/rgkeys.ps1`, `tools/winshot.ps1`).
 
 ## Known issues / polish backlog
@@ -71,8 +71,9 @@ takes a screenshot (`tools/rgkeys.ps1`, `tools/winshot.ps1`).
    scripts cannot simply be shifted — tried and reverted); centring them needs a position patch
    like the fight popup's once its draw call is located.
    A nicer frame (blurred/extended art) would need new art.
-3. "**Quick Match**" and "**Online**" open the dead N-Gage Arena login (Esc backs out). They need
-   our own server (`MULTIPLAYER.md`); until then they could be hidden.
+3. "**Quick Match**" and "**Online**" now log in to our relay (`server/`, set `server=` in
+   `revived.ini`; no Arena login screen). Quick Match pairs players into a game room, but the
+   match itself does not start yet (`MULTIPLAYER.md`, "Next step").
 4. The game folder must be **writable** (saves and the patched paks live in it): don't install
    under `Program Files`.
 5. No **gamepad** support (Java has none built in). Options: a small XInput→key bridge in the

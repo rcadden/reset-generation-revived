@@ -115,6 +115,8 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     SetUnhandledExceptionFilter(on_crash);
 #endif
+    if (getenv("RG_NICK") || getenv("RG_SERVER"))
+        rg_net_configure(getenv("RG_SERVER") ? getenv("RG_SERVER") : "ws://127.0.0.1:8787/ws", getenv("RG_NICK"));
     rg_use_virtual_clock(!realtime);
     double t0 = now_s();
     if (!rg_init(dll, dir, w, h, "en")) return 1;

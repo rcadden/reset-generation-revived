@@ -96,9 +96,15 @@ rt_cpuid_t rt_cpuid(uint32_t leaf, uint32_t sub);
 #ifdef RT_CALLTRACE
 extern uint32_t rt_calltrace[256];
 extern unsigned rt_calltrace_pos;
-#define RT_ENTER(a) (rt_calltrace[rt_calltrace_pos++ & 255] = (a))
+extern int rt_trace_live;
+void rt_trace_live_log(uint32_t a);
+extern uint32_t rt_callstack[1024];
+extern unsigned rt_callstack_depth;
+#define RT_ENTER(a) (rt_calltrace[rt_calltrace_pos++ & 255] = (a), rt_callstack[rt_callstack_depth++ & 1023] = (a),                      rt_trace_live > 0 ? rt_trace_live_log(a) : (void)0)
+#define RT_LEAVE() (rt_callstack_depth--)
 #else
 #define RT_ENTER(a) ((void)0)
+#define RT_LEAVE() ((void)0)
 #endif
 typedef struct { uint32_t addr; void (*fn)(void); } rt_func_entry;
 extern const rt_func_entry rt_func_table[];

@@ -465,6 +465,7 @@ void net_dispatch_events(void) {
         case E_DATA:
             if (netbuf && it->len <= netbuf_size) {
                 memcpy(netbuf, it->data, (size_t)it->len);
+                if (getenv("RT_NET_DEBUG")) host_log("net: data %d bytes for room \"%s\"", it->len, it->name);
                 rg_ev_data(it->len, it->name);
             }
             break;

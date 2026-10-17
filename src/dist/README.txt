@@ -30,8 +30,9 @@ SETTINGS
   See app\revived.ini (resolution, fullscreen, scaling filter).
 
 NOTES
-  * "Quick Match" and "Online" need the N-Gage Arena servers, shut down in 2010
-    (press Esc on the login box to go back). Play Arcade Mode against the AI instead.
+  * "Quick Match" and "Online" use the Reset Generation Revived server (set server=
+    in app\revived.ini). Online play is a work in progress: matchmaking works, but
+    matches do not start yet. Play Arcade Mode against the AI meanwhile.
   * On first launch the game adapts its data files to your resolution
     (originals are kept as *.pak.orig).
 

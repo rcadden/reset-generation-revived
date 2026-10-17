@@ -111,6 +111,14 @@ JNI(GetStringUTFRegion) {
     rt_ret(0, 5);
 }
 JNI(GetArrayLength) { jobj *o = obj(A(1)); rt_ret(o ? o->len : 0, 2); }
+/* arrays: only the empty friend-list arrays exist on our side */
+JNI(GetObjectArrayElement) { rt_ret(0, 3); }
+JNI(GetPrimitiveArrayElements) {
+    jobj *o = obj(A(1));
+    if (A(2)) M[A(2)] = 1;
+    rt_ret(rt_heap_alloc(o && o->len ? o->len * 8 : 8), 3);
+}
+JNI(ReleasePrimitiveArrayElements) { rt_heap_free(A(2)); rt_ret(0, 4); }
 JNI(NewDirectByteBuffer) { rt_ret(rt_jni_new_direct_buffer(A(1), A(2)), 4); }
 JNI(GetDirectBufferAddress) { jobj *o = obj(A(1)); rt_ret(o && o->kind == O_DBUF ? o->addr : 0, 2); }
 JNI(GetDirectBufferCapacity) { jobj *o = obj(A(1)); cpu.r[EDX] = 0; rt_ret(o && o->kind == O_DBUF ? o->len : 0, 2); }
@@ -180,7 +188,7 @@ void rt_jni_init(void) {
         F(100, GetIntField), F(113, GetMethodID), F(144, GetFieldID), F(164, GetStringLength),
         F(165, GetStringChars), F(166, ReleaseStringChars), F(167, NewStringUTF),
         F(168, GetStringUTFLength), F(169, GetStringUTFChars), F(170, ReleaseStringUTFChars),
-        F(171, GetArrayLength), F(217, MonitorEnter), F(218, MonitorExit), F(221, GetStringUTFRegion),
+        F(171, GetArrayLength), F(173, GetObjectArrayElement), F(217, MonitorEnter), F(218, MonitorExit), F(221, GetStringUTFRegion),
         F(228, ExceptionCheck), F(229, NewDirectByteBuffer), F(230, GetDirectBufferAddress),
         F(231, GetDirectBufferCapacity),
 #undef F
@@ -191,6 +199,8 @@ void rt_jni_init(void) {
         const char *name = NULL;
         for (size_t k = 0; k < sizeof fns / sizeof fns[0]; k++) if (fns[k].idx == i) { fn = fns[k].fn; name = fns[k].name; }
         if ((i >= 34 && i <= 63) || (i >= 114 && i <= 143)) { fn = call_method; name = "CallMethod"; }
+        if (i >= 183 && i <= 190) { fn = j_GetPrimitiveArrayElements; name = "GetArrayElements"; }
+        if (i >= 191 && i <= 198) { fn = j_ReleasePrimitiveArrayElements; name = "ReleaseArrayElements"; }
         snprintf(names[i], sizeof names[i], "JNI_%d_%s", i, name ? name : "missing");
         ST32(table + 4 * (uint32_t)i, rt_stub_register(names[i], fn, i));
     }

@@ -9,6 +9,13 @@ rt_cpu cpu;
 #ifdef RT_CALLTRACE
 uint32_t rt_calltrace[256];
 unsigned rt_calltrace_pos;
+int rt_trace_live;
+uint32_t rt_callstack[1024];
+unsigned rt_callstack_depth;
+void rt_trace_live_log(uint32_t a) {
+    rt_trace_live--;
+    host_log("  live %08x ecx=%08x a1=%08x a2=%08x", a, cpu.r[ECX], LD32(cpu.r[ESP] + 4), LD32(cpu.r[ESP] + 8));
+}
 #endif
 uint8_t *M;
 
@@ -44,6 +51,10 @@ void rt_dump_calltrace(void) {
     size_t n = 0;
     for (unsigned i = 48; i > 0; i--) n += (size_t)snprintf(line + n, sizeof line - n, "%08x ", rt_calltrace[(rt_calltrace_pos - i) & 255]);
     host_log("last function entries (oldest first): %s", line);
+    n = 0;
+    for (unsigned i = 0; i < rt_callstack_depth && i < 1024 && n < sizeof line - 10; i++)
+        n += (size_t)snprintf(line + n, sizeof line - n, "%08x ", rt_callstack[i]);
+    host_log("guest call stack (outermost first): %s", line);
 #endif
 }
 
@@ -106,6 +117,33 @@ void rt_call(uint32_t addr) {
 
 void rt_trace(uint32_t func) {
     host_log("trace %08x ecx=%08x [esp+4]=%08x [esp+8]=%08x", func, cpu.r[ECX], LD32(cpu.r[ESP] + 4), LD32(cpu.r[ESP] + 8));
+    if (func == 0x10115040 || func == 0x10114370) {   /* key/value lookup: print the key */
+        uint32_t a = LD32(cpu.r[ESP] + 4), h = a ? LD32(a) : 0;
+        if (func == 0x10114370) host_log("   kv get \"%s\"", (const char *)(M + a));
+        else if (h) host_log("   kv key \"%.*s\"", (int)(LD32(h + 4) & 0xff), (const char *)(M + LD32(h + 0xc)));
+    }
+#ifdef RT_CALLTRACE
+    {   /* RT_LIVE_TRIGGER=<hex addr>:<count> logs the next <count> function entries after it */
+        static uint32_t trig, count, inited;
+        if (!inited) { const char *e = getenv("RT_LIVE_TRIGGER"); if (e) sscanf(e, "%x:%u", &trig, &count); inited = 1; }
+        if (trig == func && rt_trace_live <= 0) rt_trace_live = (int)count;
+    }
+#endif
+    if (func == 0x10110210) {   /* MT connect(address): dump the address object */
+        uint32_t a = LD32(cpu.r[ESP] + 4), self = cpu.r[ECX], cur = LD32(self + 0x3c);
+        uint32_t h = LD32(a + 0xc);
+        host_log("   connect addr %08x vt %08x type %u str \"%.*s\" | current %08x type %u", a, LD32(a), LD32(a + 4),
+                 (int)(LD32(h + 4) & 0xff), (const char *)(M + LD32(h + 0xc)), cur, cur ? LD32(cur + 4) : 0);
+    }
+    if (func == 0x101107d0) {   /* event broadcast: list the listeners' handlers */
+        uint32_t bit = LD32(cpu.r[ESP] + 4), k = 0;
+        while (!(bit & 1) && k < 32) { bit >>= 1; k++; }
+        uint32_t list = LD32(cpu.r[ECX] + 4 * k + 4);
+        for (uint32_t n = list ? LD32(list) : 0; n; n = LD32(n + 4)) {
+            uint32_t l = LD32(n + 8);
+            host_log("   listener %08x vtable %08x handler %08x slot %08x %08x %08x", l, LD32(l), LD32(LD32(l) + 8), LD32(l + k * 12 + 0xc), LD32(l + k * 12 + 0x10), LD32(l + k * 12 + 0x14));
+        }
+    }
 }
 
 /* Calls guest function `addr` from the host with stdcall/cdecl arguments; returns EAX. */
