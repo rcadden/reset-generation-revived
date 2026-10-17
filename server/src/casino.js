@@ -14,6 +14,7 @@
 export const CH_SYSTEM = 1;
 export const CH_CONTROL = 2;
 const KEEPALIVE_MS = 10_000;            // clients drop a peer that is silent for 20 s
+const LOCK_TIMEOUT_MS = 3_000;          // wait this long for LOCK_PLAYER_IN_GAME answers
 export const CH_COMMAND = 3;
 export const CH_CASINO = 0x11;          // the casino system
 export const CH_MATCHMAKER = 0x12;      // a matchmaker casino (kind 1)
@@ -122,6 +123,7 @@ export class Casino {
     this.log = log;
     this.players = new Map();     // client -> {name, state}
     this.queue = [];              // clients waiting in Quick Match (CASINO_MATCHMAKING)
+    this.locking = new Map();     // client -> match waiting for LOCK_PLAYER_IN_GAME answers
     this.nextTable = 1;
     this.matchSize = 2;
     this.pingSeq = 1;
@@ -158,23 +160,75 @@ export class Casino {
   }
 
   leave(client) {
+    if (this.queue.some((q) => q.client === client)) this.notifyQueue(client, 10);
     this.players.delete(client);
     this.queue = this.queue.filter((q) => q.client !== client);
   }
 
-  /** Pairs queued players and tells each one the game room to move to. */
+  /** EVENT CASINO_MATCHMAKING (9, [string id][profile]) / CASINO_CANCEL_MATCHMAKING (10, [string
+   *  id]): updates the other waiting players' "Players in Match" list. */
+  notifyQueue(client, action) {
+    const p = this.profile(client);
+    for (const q of this.queue) {
+      if (q.client === client) continue;
+      this.reply(q.client, EVENT, action, (w) => (action === 9 ? w.str(p.id).kv(p) : w.str(p.id)), q.ch);
+    }
+  }
+
+  /**
+   * Forms a match once enough players are queued. The "Players in Match" screen is up while a
+   * player waits; it lists the others named by EVENT CASINO_MATCHMAKING. A full group is
+   * announced in three steps:
+   *   1. EVENT CASINO_ENTER [string id][profile] for each other member: the game room's seating
+   *      events name players by id, resolved among the players the client's casino knows;
+   *   2. REQUEST LOCK_PLAYER_IN_GAME (casino-system channel) -> "Game starting"; the client
+   *      answers with a RESPONSE;
+   *   3. once all have answered (or after a timeout), EVENT CASINO_MATCHED_UP with the room.
+   */
   matchmake() {
     while (this.queue.length >= this.matchSize) {
       const group = this.queue.splice(0, this.matchSize);
       const room = `QM_${this.nextTable++}`;
       this.log(`casino: matched ${group.map((q) => q.client.name).join(', ')} -> ${room}`);
-      this.expectRoom(room, group.length);
-      group.forEach((q, i) => {
-        const b = `naf://rg.com:80/${room}?hosted=${i === 0 ? 'yes' : 'no'}`;
-        this.reply(q.client, EVENT, 31, (w) => writeTable(w.str(MATCHMAKER.name),
-          { room, b, c: 0, d: 1, e: group.length, settings: { a: 0, s: b, flag: 0 } }), q.ch);
-      });
+      for (const q of group) {
+        for (const o of group) {
+          if (o !== q) this.reply(q.client, EVENT, 8, (w) => w.str(this.profile(o.client).id).kv(this.profile(o.client)), q.ch);
+        }
+      }
+      const match = { group, room, locked: new Set(), timer: null };
+      for (const q of group) {
+        this.locking.set(q.client, match);
+        this.reply(q.client, REQUEST, 29, (w) => w.u32(0), CH_CASINO);
+      }
+      if (typeof setTimeout === 'function') {
+        match.timer = setTimeout(() => this.matchedUp(match), LOCK_TIMEOUT_MS);
+        match.timer.unref?.();
+      }
     }
+  }
+
+  /** A player acknowledged LOCK_PLAYER_IN_GAME. */
+  locked(client) {
+    const match = this.locking.get(client);
+    if (!match) return;
+    match.locked.add(client);
+    if (match.group.every((q) => match.locked.has(q.client))) this.matchedUp(match);
+  }
+
+  /** Tells each player of a locked group the game room to move to. */
+  matchedUp(match) {
+    if (match.done) return;
+    match.done = true;
+    clearTimeout(match.timer);
+    const group = match.group.filter((q) => this.players.has(q.client));
+    for (const q of match.group) this.locking.delete(q.client);
+    const { room } = match;
+    this.expectRoom(room, group.length, group.map((q) => this.profile(q.client)));
+    group.forEach((q, i) => {
+      const b = `naf://rg.com:80/${room}?hosted=${i === 0 ? 'yes' : 'no'}`;
+      this.reply(q.client, EVENT, 31, (w) => writeTable(w.str(MATCHMAKER.name),
+        { room, b, c: 0, d: 1, e: group.length, settings: { a: 0, s: b, flag: 0 } }), q.ch);
+    });
   }
 
   packet(client, bytes) {
@@ -205,6 +259,7 @@ export class Casino {
     const type = r.u8(), action = r.u8();
     const name = ACTIONS[action] ?? `ACTION_${action}`;
     this.log(`casino: ${client.name} ch${ch} ${['REQUEST', 'RESPONSE', 'EVENT'][type] ?? type} ${name} ${hex(data.subarray(2))}`);
+    if (type === RESPONSE && action === 29) return this.locked(client);
     if (type !== REQUEST) return;
     switch (action) {
       case 0: {   // CASINOSYSTEM_LOGIN: u32 version, string client version
@@ -229,13 +284,17 @@ export class Casino {
         const hero = r.str(), flag = r.str();
         const p = this.players.get(client);
         if (p) { p.hero = hero; p.random = flag; }
-        this.respond(client, 9, 0, 0, (w) => w.u8(0), ch);
+        // response: generic + u8 n + profiles of the players already waiting
         this.queue = this.queue.filter((q) => q.client !== client);
+        const waiting = this.queue.map((q) => this.profile(q.client));
+        this.respond(client, 9, 0, 0, (w) => { w.u8(waiting.length); for (const m of waiting) w.kv(m); return w; }, ch);
         this.queue.push({ client, hero, flag, ch });
+        this.notifyQueue(client, 9);
         this.matchmake();
         break;
       }
       case 10:    // CASINO_CANCEL_MATCHMAKING
+        this.notifyQueue(client, 10);
         this.queue = this.queue.filter((q) => q.client !== client);
         this.respond(client, 10, 0, 0, (w) => w, ch);
         break;

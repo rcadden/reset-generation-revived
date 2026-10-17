@@ -4,7 +4,9 @@
 // Cloudflare Worker (worker/index.js). It stands in for N-Gage Arena's SNAP game rooms:
 //   * CasinoSystem: the permanent lobby; its "game server" is the matchmaker bot in
 //     casino.js (login, Quick Match queue, matched-up events naming a game room).
-//   * game rooms (max 4 players): packets are relayed to the other members in order.
+//   * matchmade game rooms: served by a GameRoom bot (gameroom.js: handshake, seating,
+//     forwarding the match between the players).
+//   * other game rooms (max 4 players): packets are relayed to the other members in order.
 // The engine only starts talking in a room after the room's server has spoken, so every
 // joiner gets a greeting frame (matchmade rooms: once all matched players are present).
 //
@@ -13,6 +15,7 @@
 //   binary frames = one game packet (<= MAX_PACKET bytes)
 
 import { Casino, CH_SYSTEM, Writer, frame } from './casino.js';
+import { GameRoom } from './gameroom.js';
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_PACKET = 2048;          // the engine's shared net buffer
@@ -131,6 +134,14 @@ export class Relay {
     if (!room) {
       if (op === 'join') return c.ctl({ t: 'error', op, room: roomName, code: 'not_found' });
       room = { key, name: roomName, members: new Set(), created: this.now(), max: MAX_ROOM_MEMBERS, permanent: false };
+      const exp = this.expected.get(key);
+      if (exp) {
+        this.expected.delete(key);
+        room.bot = new GameRoom({ name: roomName, expected: exp.count, profiles: exp.profiles, log: this.log, send: (client, bytes) => client.send(bytes) });
+        // start without the missing players after a while (they would never be greeted)
+        room.startTimer = setTimeout(() => room.bot.start(), Math.max(0, exp.until - this.now()));
+        room.startTimer.unref?.();
+      }
       this.rooms.set(key, room);
       this.log(`room + ${roomName}`);
     } else if (room.members.size >= room.max) {
@@ -146,23 +157,15 @@ export class Relay {
   }
 
   /** The matchmaker announces how many players a game room will have. */
-  expectRoom(name, count) {
-    this.expected.set(name.toLowerCase(), { count, until: this.now() + 10_000 });
+  expectRoom(name, count, profiles = []) {
+    this.expected.set(name.toLowerCase(), { count, profiles, until: this.now() + 10_000 });
   }
 
   /**
-   * The engine starts talking in a room only after the room's "game server" has spoken, and
-   * its handshake is lost on players who are not there yet. So matchmade rooms are greeted
-   * once everyone has arrived (or after 10 s); other rooms greet each joiner at once.
+   * The engine starts talking in a room only after the room's "game server" has spoken.
+   * Rooms without a bot greet each joiner at once (matchmade rooms: see GameRoom.start).
    */
   greet(room) {
-    const exp = this.expected.get(room.key);
-    if (exp && room.members.size < exp.count && this.now() < exp.until) {
-      if (!room.greetTimer) room.greetTimer = setTimeout(() => { room.greetTimer = null; this.greet(room); }, exp.until - this.now() + 10);
-      return;
-    }
-    if (room.greetTimer) { clearTimeout(room.greetTimer); room.greetTimer = null; }
-    this.expected.delete(room.key);
     const hello = frame(CH_SYSTEM, new Writer().u32(20000).bytes());
     for (const m of room.members) {
       if (!m.greeted?.has(room)) { (m.greeted ??= new Set()).add(room); m.send(hello); }
@@ -179,6 +182,7 @@ export class Relay {
     if (reason === 'left') c.ctl({ t: 'left', room: room.name });
     for (const o of room.members) o.ctl({ t: 'peer_left', room: room.name, name: c.name, reason });
     if (room.members.size === 0 && !room.permanent) {
+      clearTimeout(room.startTimer);
       this.rooms.delete(room.key);
       this.log(`room - ${room.name}`);
     }
