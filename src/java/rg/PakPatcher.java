@@ -125,6 +125,9 @@ final class PakPatcher {
             if (stamp.exists() && want.equals(new String(readAll(stamp), "UTF-8").trim()) && pak.exists()) {
                 return;
             }
+            if (orig.exists() && orig.length() == 0 && !stamp.exists()) {
+                orig.delete();   // truncated backup from an interrupted copy; pak is still pristine
+            }
             if (!orig.exists()) {
                 if (!pak.exists()) {
                     return;
@@ -356,11 +359,24 @@ final class PakPatcher {
     }
 
     static void copy(File from, File to) throws IOException {
-        OutputStream out = new FileOutputStream(to);
+        byte[] data = readAll(from);
+        File tmp = new File(to.getPath() + ".cp");
+        OutputStream out = new FileOutputStream(tmp);
         try {
-            out.write(readAll(from));
+            out.write(data);
         } finally {
             out.close();
+        }
+        if (tmp.length() != data.length || data.length == 0) {
+            tmp.delete();
+            throw new IOException("short copy of " + from);
+        }
+        if (to.exists() && !to.delete()) {
+            tmp.delete();
+            throw new IOException("cannot replace " + to);
+        }
+        if (!tmp.renameTo(to)) {
+            throw new IOException("cannot rename " + tmp);
         }
     }
 }

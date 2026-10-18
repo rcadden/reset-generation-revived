@@ -35,6 +35,9 @@ Java and in data.
   `story.pak` (scene offsets) from `*.pak.orig` copies whenever the resolution changes; a
   `*.pak.revived` stamp avoids redoing it on every launch. Paks an older version patched but the
   current one does not are restored from `.orig`.
+* Patch backups (`*.orig`) are written via a temp file and length-checked; a 0-byte `.orig` (left by an
+  interrupted copy) used to make `DllPatcher`/`PakPatcher` silently skip patching (popup stayed left-aligned,
+  intro/story paks unshifted). Such a backup is now discarded and recreated while the target is still unpatched.
 * `src/java/rg/DllPatcher.java` — centres the fight popup (see the class comment for the exact
   patch: two immediates plus a 21-byte code cave in the unused tail of `.text`).
 * Everything else is the original `ResetGeneration.jar` / `rg-signed.jar`, repacked.

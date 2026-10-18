@@ -57,6 +57,9 @@ final class DllPatcher {
             if (stamp.exists() && want.equals(new String(PakPatcher.readAll(stamp), "UTF-8").trim()) && dll.exists()) {
                 return;
             }
+            if (orig.exists() && orig.length() == 0 && !stamp.exists()) {
+                orig.delete();   // truncated backup from an interrupted copy; dll is still pristine
+            }
             if (!orig.exists()) {
                 if (!dll.exists()) {
                     return;
