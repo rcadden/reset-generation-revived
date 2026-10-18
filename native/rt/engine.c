@@ -41,6 +41,22 @@ static void hook_tile_tool(void) {
     ST32(cursor + 0x28, LD32(target + 0x9c));
 }
 
+/* Debug aid (RG_DEBUG_WINLOSE=<frame>): after that tick, open the engine's built-in WIN_LOSE_TEST screen
+ * (the debug menu entry FUN_100c7c70 that previews the end-of-match win/lose scenes; the shipped main
+ * menu does not link it) so those screens can be screenshotted without playing a match to the end. */
+static uint32_t dbg_menu;
+static void hook_dbg_menu_ctor(void) { dbg_menu = cpu.r[ECX]; }
+static void debug_winlose(void) {
+    static int frames, done;
+    const char *e = getenv("RG_DEBUG_WINLOSE");
+    if (!e || done || !dbg_menu || ++frames < atoi(e)) return;
+    done = 1;
+    uint32_t scr = rt_heap_alloc(0x20), a[1] = {LD32(dbg_menu + 0x10)}, a3[1] = {scr};
+    memset(M + scr, 0, 0x20);
+    rt_guest_thiscall(0x100c7c70, scr, 1, a);
+    rt_guest_thiscall(LD32(LD32(dbg_menu) + 0x14), dbg_menu, 1, a3);
+}
+
 int rg_init(const char *dll_path, const char *game_dir, int width, int height, const char *lang) {
     static rt_image img;
     W = width;
@@ -57,6 +73,7 @@ int rg_init(const char *dll_path, const char *game_dir, int width, int height, c
     if (!rt_load_image(&img, dll_path, game_dir)) return 0;
     rt_jni_init();
     rt_hook_add(0x100d5350, hook_tile_tool);
+    if (!rg_server_enabled()) rt_hook_add(0x1008f500, hook_dbg_menu_ctor);
     rg_server_init();
     env = rt_jni_env();
     engine_obj = rt_jni_new_object("rg/natives/NativeGameEngine");
@@ -127,6 +144,7 @@ int rg_tick(void) {
     uint32_t *px = (uint32_t *)(M + fb);
     net_dispatch_events();
     rg_server_pump();
+    debug_winlose();
     if (prev) { memcpy(prev, px, n * 4); memset(px, 0, n * 4); }
     int r = (int)(call(x_tick, 2, env, engine_obj) & 0xff);
     if (prev) {

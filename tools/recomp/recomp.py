@@ -104,6 +104,13 @@ PATCHES = {
 }
 
 
+# End-of-match win/lose screens (scene draw FUN_100dafa0) draw their layers straight onto the screen
+# with 240-wide coordinates. While that function runs, rt_xoff is DX and the engine's sprite/text
+# draw (FUN_10052de0: surface, &pos, &rect, frame) adds it to pos.x (and restores it afterwards).
+XOFF_FUNCS = {0x100dafa0: DIALOG_DX}
+XOFF_DRAW = 0x10052de0
+
+
 def apply_patches(instrs):
     for addr, p in PATCHES.items():
         ins = instrs.get(addr)
@@ -580,10 +587,20 @@ class FuncGen:
             head.append('    rt_trace(0x%xu);' % self.entry)
         if self.entry in rc.hooks:
             head.append('    rt_hook(0x%xu);' % self.entry)
+        if self.entry in XOFF_FUNCS:
+            head.append('    rt_xoff += %d;' % XOFF_FUNCS[self.entry])
+        if self.entry == XOFF_DRAW:
+            # text-box widgets (return address in 0x100a2xxx) already centre themselves on the real screen width
+            head.append('    uint32_t xo_p = LD32(cpu.r[ESP] + 8), xo = (LD32(cpu.r[ESP]) >> 12) == 0x100a2u ? 0 : (uint32_t)rt_xoff;')
+            head.append('    if (xo) ST32(xo_p, LD32(xo_p) + xo);')
         if self.body and self.body[0] != self.entry:
             head.append('    goto L_%x;' % self.entry)
         text = '\n'.join(head + out + ['}', ''])
         text = text.replace(' return;', ' RT_LEAVE(); return;')
+        if self.entry in XOFF_FUNCS:
+            text = text.replace(' RT_LEAVE(); return;', ' RT_LEAVE(); rt_xoff -= %d; return;' % XOFF_FUNCS[self.entry])
+        if self.entry == XOFF_DRAW:
+            text = text.replace(' RT_LEAVE(); return;', ' RT_LEAVE(); if (xo) ST32(xo_p, LD32(xo_p) - xo); return;')
         return text.replace('@SPILL@', spill).replace('@RELOAD@', reload)
 
 

@@ -6,6 +6,7 @@
 #include <stdarg.h>
 
 rt_cpu cpu;
+int rt_xoff;   /* extra x added to every sprite draw while a recompiler "layout shift" function runs */
 #ifdef RT_CALLTRACE
 uint32_t rt_calltrace[256];
 unsigned rt_calltrace_pos;

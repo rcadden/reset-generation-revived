@@ -71,9 +71,12 @@ takes a screenshot (`tools/rgkeys.ps1`, `tools/winshot.ps1`).
    leaving black on the right. Menus are laid out correctly; it is art coverage only. Fix idea:
    extend `PakPatcher` to centre or tile `menus.pak` background sprites.
 2. Cutscene backdrops are 240 px wide: centred with black (or tiled effect layers) either side.
-   The end-of-match **win/lose screens** render into a fixed 240×320 surface at the left (their
-   scripts cannot simply be shifted — tried and reverted); centring them needs a position patch
-   like the fight popup's once its draw call is located.
+   The end-of-match **win/lose screens** draw their layers straight to the screen with 240-wide
+   coordinates (scripts cannot simply be shifted: tried and reverted). The Android/native build now
+   centres them at recompile time (`docs/NATIVE_PORT.md`, "Win/lose screen centring"); the Windows
+   build still needs the equivalent: the scene draw is `FUN_100dafa0` (x + 200 on every sprite/text
+   draw it makes, via the device draw `FUN_10052de0`; text boxes called from 0x100a2xxx centre
+   themselves already), which needs a code cave in `DllPatcher` as for the fight popup.
    A nicer frame (blurred/extended art) would need new art.
 3. "**Quick Match**" and "**Online**" now log in to our relay (`server/`, set `server=` in
    `revived.ini`; no Arena login screen). Quick Match pairs players into a game room, but the

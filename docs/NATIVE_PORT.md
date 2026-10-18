@@ -97,6 +97,15 @@ phone and open it (allow "install unknown apps" for the file manager), or
   is laid out for 240 px width. `recomp.py` has a `PATCHES` table that shifts its three x
   positions by (640 - 240) / 2 = 200 at recompile time (`FUN_100b8570`: box centre `0x78`, text
   `0x4b`, portrait x). Constants are for the native 640x360 build.
+* **Win/lose screen centring.** The end-of-match scenes (`menus.pak` `heroNN_win` / `_loseNN`,
+  `end_arena_menu`) are drawn by `FUN_100dafa0` straight onto the screen with 240-wide coordinates.
+  `recomp.py` (`XOFF_FUNCS`, `XOFF_DRAW`) sets `rt_xoff = 200` while that function runs, and the
+  engine's device draw `FUN_10052de0` (surface, &pos, &rect, frame) adds it to pos.x (restored on
+  return); draws coming from the text-box widgets (return address 0x100a2xxx) are skipped because
+  they centre on the real screen width themselves. Verified in the headless driver with the
+  engine's built-in `WIN_LOSE_TEST` screen (the debug "View" animation), sprites, labels and
+  "ABUSED BY" text centred; a real match end was not reached. The debug screen is opened with
+  `RG_DEBUG_WINLOSE=<tick>` (`engine.c`): after the main menu is up, DOWN x3 + RETURN on "View".
 * **Ghost / highlight clipped on the right.** The board's tile views (the block-placement ghost,
   highlight layers; `FUN_100867c0`) draw only the viewport columns `[start, grid+0x18+1)`; `grid+0x18`
   is 13 (sized for 240 px). On 640 the centred board starts at viewport column 4, so tile columns 10-11
