@@ -168,7 +168,14 @@ typedef struct { int key; float cx, cy, r; const char *label; int down; } button
 static button buttons[] = {
     {K_UP, 0, 0, 0, "up", 0}, {K_DOWN, 0, 0, 0, "down", 0}, {K_LEFT, 0, 0, 0, "left", 0}, {K_RIGHT, 0, 0, 0, "right", 0},
     {K_CTRL, 0, 0, 0, "action", 0}, {K_ENTER, 0, 0, 0, "select", 0}, {K_ESC, 0, 0, 0, "back", 0},
+    {K_CTRL, 0, 0, 0, "drop", 0},
 };
+#define B_DROP 7
+/* The game drops a piece when Action is held for 500 ms. The Drop button is a tap that holds
+ * Ctrl for DROP_MS by itself, so no finger has to stay down. */
+#define DROP_MS 700
+static int drop_pending;
+static uint64_t drop_release_at;
 #define NB (int)(sizeof buttons / sizeof buttons[0])
 static int bw;                           /* window buffer width (height is BH) */
 static int game_x;                       /* left edge of the game image in the buffer */
@@ -189,11 +196,26 @@ static void layout_controls(void) {
     buttons[4] = (button){K_CTRL, rx, ly, 1.5f * u, "action", 0};
     buttons[5] = (button){K_ENTER, lx, 1.1f * u, 0.7f * u, "select", 0};
     buttons[6] = (button){K_ESC, rx, 1.1f * u, 0.7f * u, "back", 0};
+    buttons[B_DROP] = (button){K_CTRL, rx, ly - 3.0f * u, 0.95f * u, "drop", 0};
+}
+
+static void drop_release(void) {
+    if (!drop_pending) return;
+    drop_pending = 0;
+    rg_key(0, K_CTRL);
 }
 
 static void press(int b, int down) {
     if (buttons[b].down == down) return;
     buttons[b].down = down;
+    if (b == B_DROP) {                       /* released by the main loop after DROP_MS */
+        if (down) {
+            if (!drop_pending) rg_key(1, K_CTRL);
+            drop_pending = 1;
+            drop_release_at = mono_ms() + DROP_MS;
+        }
+        return;
+    }
     rg_key(down, buttons[b].key);
 }
 
@@ -272,7 +294,12 @@ static void build_mask(void) {
         mask_circle(b->cx, b->cy, b->r, 140, 1);
         if (i < 4) mask_triangle(b->cx, b->cy, b->r * 0.55f, i, 200);
         else if (i == 4) mask_circle(b->cx, b->cy, b->r * 0.35f, 170, 0);
-        else {
+        else if (i == B_DROP) {
+            /* a down arrow onto a bar: "place" */
+            mask_triangle(b->cx, b->cy - b->r * 0.1f, b->r * 0.5f, 1, 200);
+            for (int k = -(int)(b->r * 0.45f); k <= (int)(b->r * 0.45f); k++)
+                for (int t = 0; t < 5; t++) cover((int)(b->cx + k), (int)(b->cy + b->r * 0.5f + t), 200);
+        } else {
             /* select: horizontal bar; back: "x" */
             for (int k = -(int)(b->r * 0.4f); k <= (int)(b->r * 0.4f); k++)
                 for (int t = -2; t <= 2; t++) {
@@ -440,6 +467,7 @@ static void on_cmd(struct android_app *app, int32_t cmd) {
         set_paused(1);
         audio_stop();
         for (int i = 0; i < NB; i++) if (buttons[i].down) press(i, 0);
+        drop_release();
         break;
     case APP_CMD_WINDOW_RESIZED:
     case APP_CMD_CONFIG_CHANGED:
@@ -498,6 +526,7 @@ void android_main(struct android_app *app) {
         }
         if (booted && focused && window) {
             uint64_t t0 = mono_ms();
+            if (drop_pending && t0 >= drop_release_at) drop_release();
             if (!rg_tick()) { ANativeActivity_finish(app->activity); }
             uint64_t t1 = mono_ms();
             audio_pump();

@@ -86,6 +86,24 @@ phone and open it (allow "install unknown apps" for the file manager), or
   like Ctrl), Select and Back (top corners). Tapping the engine's "Select"/"Back" soft-key
   labels at the bottom corners works too. Gamepads and keyboards: d-pad/stick, A = Action,
   Start/X = Select, B/Back = Back; on-screen controls hide while a pad is used.
+* **Drop button** (above Action): a tap that holds Ctrl for 700 ms by itself. The engine drops a
+  piece when Ctrl has been held 500 ms (`FUN_100d4ed0` polls the key-down time), which is awkward
+  on a touchscreen.
+* The tutorial only accepts a drop at its forced target (position and rotation compared in
+  `FUN_100d4c00`; the target is the blinking outline). The piece cursor starts one cell off and its
+  ghost sits over existing blocks, so it is nearly invisible. Move it with the d-pad, tap Action
+  to rotate, then drop. A tutorial popup swallows the first key press while it is shown.
+* **Tutorial dialogue centring.** The tutorial / story dialogue screen (speech box, text, portrait)
+  is laid out for 240 px width. `recomp.py` has a `PATCHES` table that shifts its three x
+  positions by (640 - 240) / 2 = 200 at recompile time (`FUN_100b8570`: box centre `0x78`, text
+  `0x4b`, portrait x). Constants are for the native 640x360 build.
+* **Tutorial piece ghost.** The ghost of the piece being placed lives in an overlay layer drawn
+  under the blocks, and the tutorial starts the cursor on top of existing blocks, so it was
+  invisible. `hook_tile_tool` (engine.c, hooked at `FUN_100d5350`, the placement tool's
+  activation) moves the start of the cursor 3 cells left of the forced target when one is set.
+  Full path: move Right x3, rotate once, hold (or tap Drop).
+* The native host clears the framebuffer before every tick (the Java host's `CLEAR_EACH_FRAME`);
+  a tick that draws nothing keeps the previous frame.
 * Audio: AAudio, the engine's 8 kHz mono mix resampled to the device rate.
 * Pause/resume freezes the engine clock so its 32 fps limiter does not race on resume.
 * Online: `files/revived.ini` in the app's internal storage holds `server=` and `nickname=`

@@ -30,6 +30,17 @@ void rg_advance_ms(uint32_t ms) { rt_advance_time(ms); }
 
 static int cmp_str(const void *a, const void *b) { return strcmp(*(const char *const *)a, *(const char *const *)b); }
 
+/* The tutorial forces the first block onto a target (FUN_100d4c00), but the placement tool starts at the
+ * pointer position, where the piece's ghost sits over existing blocks and cannot be seen (the ghost
+ * layer is drawn under the blocks). When a forced target is set, start the cursor a few cells to the
+ * left of it, on free ground: visible, and the player still has to move and rotate it. */
+static void hook_tile_tool(void) {
+    uint32_t tool = cpu.r[ECX], target = LD32(tool + 0x18), cursor = LD32(tool + 0x28);
+    if (!target || !cursor || !M[target + 0xad]) return;
+    ST32(cursor + 0x24, LD32(target + 0x98) - 3);
+    ST32(cursor + 0x28, LD32(target + 0x9c));
+}
+
 int rg_init(const char *dll_path, const char *game_dir, int width, int height, const char *lang) {
     static rt_image img;
     W = width;
@@ -45,6 +56,7 @@ int rg_init(const char *dll_path, const char *game_dir, int width, int height, c
     rt_dispatch_init();
     if (!rt_load_image(&img, dll_path, game_dir)) return 0;
     rt_jni_init();
+    rt_hook_add(0x100d5350, hook_tile_tool);
     rg_server_init();
     env = rt_jni_env();
     engine_obj = rt_jni_new_object("rg/natives/NativeGameEngine");
@@ -105,16 +117,34 @@ int rg_init(const char *dll_path, const char *game_dir, int width, int height, c
     return 1;
 }
 
+/* Like the Java host's CLEAR_EACH_FRAME: above 240x320 the art does not cover the screen, so
+ * pixels the engine does not redraw would stay on screen as trails. A tick that draws nothing
+ * (the engine is ahead of its frame schedule) keeps the previous frame instead of showing black. */
 int rg_tick(void) {
+    static uint32_t *prev;
+    size_t n = (size_t)W * (H + 1);
+    if (!prev) prev = malloc(n * 4);
+    uint32_t *px = (uint32_t *)(M + fb);
     net_dispatch_events();
     rg_server_pump();
-    return (int)(call(x_tick, 2, env, engine_obj) & 0xff);
+    if (prev) { memcpy(prev, px, n * 4); memset(px, 0, n * 4); }
+    int r = (int)(call(x_tick, 2, env, engine_obj) & 0xff);
+    if (prev) {
+        size_t i = 0;
+        while (i < n && px[i] == 0) i++;
+        if (i == n) memcpy(px, prev, n * 4);
+    }
+    return r;
 }
 
 const uint32_t *rg_pixels(void) { return (const uint32_t *)(M + fb); }
 
+/* Same arguments the Java host passed (java.awt.event.KeyEvent): Ctrl is KEY_LOCATION_LEFT (2),
+ * other keys STANDARD (1); the key char is the character for Enter/Esc, CHAR_UNDEFINED otherwise. */
 void rg_key(int down, int keycode) {
-    call(down ? x_key_down : x_key_up, 6, env, listener_obj, rt_now_ms(), (uint32_t)keycode, 0, 1);
+    uint32_t chr = (keycode == 10 || keycode == 27 || keycode == 32) ? (uint32_t)keycode : 0xffffu;
+    uint32_t loc = keycode == 17 ? 2 : 1;
+    call(down ? x_key_down : x_key_up, 6, env, listener_obj, rt_now_ms(), (uint32_t)keycode, chr, loc);
 }
 
 void rg_audio(uint8_t *buf, int len) {

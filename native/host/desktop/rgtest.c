@@ -5,7 +5,7 @@
  *
  * Runs the engine on a virtual clock (deterministic) unless --realtime, writes PPM screenshots
  * and a per-frame framebuffer hash log (out/hashes.txt), and reports timing. Keys are pressed
- * at frame F and released 6 frames later (names: RETURN ESC UP DOWN LEFT RIGHT CTRL SPACE). */
+ * at frame F and released 6 frames later (F:KEY*N: N frames) (names: RETURN ESC UP DOWN LEFT RIGHT CTRL SPACE). */
 #include "engine.h"
 #include "host.h"
 #include "server.h"
@@ -116,7 +116,12 @@ int main(int argc, char **argv) {
             for (char *t = strtok(s, ","); t; t = strtok(NULL, ",")) {
                 int f = atoi(t);
                 char *k = strchr(t, ':');
-                if (k && f >= 0 && f + 6 < 100000) { downs[f] = keycode(k + 1); ups[f + 6] = keycode(k + 1); }
+                int hold = 6;                      /* "F:KEY*N" holds the key for N frames */
+                if (k && strchr(k, '*')) { hold = atoi(strchr(k, '*') + 1); *strchr(k, '*') = 0; }
+                if (k && f >= 0 && hold > 0 && f + hold < 100000) { downs[f] = keycode(k + 1); ups[f + hold] = keycode(k + 1);
+                    /* RG_REPEAT=1: like an OS keyboard, repeat the press while the key is held */
+                    if (getenv("RG_REPEAT")) for (int r = f + 15; r < f + hold; r += 3) downs[r] = keycode(k + 1);
+                }
             }
         }
     }
@@ -135,7 +140,28 @@ int main(int argc, char **argv) {
     static uint8_t audio[1024];
     double t_engine = 0;
     int i;
+    int cov_s[3] = {-1, -1, -1}, cov_e[3] = {-1, -1, -1};
+    char cov_f[3][512] = {"", "", ""};
+#ifdef RT_CALLTRACE
+    /* RG_COV="start:end:file;..." records which engine functions are entered in a frame window */
+    if (getenv("RG_COV")) {
+        char *c = strdup(getenv("RG_COV"));
+        int n = 0;
+        for (char *t = strtok(c, ";"); t && n < 3; t = strtok(NULL, ";"), n++) sscanf(t, "%d:%d:%511s", &cov_s[n], &cov_e[n], cov_f[n]);
+    }
+#endif
     for (i = 0; i < frames; i++) {
+#ifdef RT_CALLTRACE
+        for (int n = 0; n < 3; n++) {
+            if (i == cov_s[n]) { memset(rt_cov, 0, sizeof rt_cov); rt_cov_on = 1; }
+            if (i == cov_e[n]) {
+                rt_cov_on = 0;
+                FILE *cf = fopen(cov_f[n], "w");
+                if (cf) for (uint32_t a = 0; a < 0x200000; a++) if (rt_cov[a >> 3] & (1u << (a & 7))) fprintf(cf, "%08x\n", 0x10000000u + a);
+                if (cf) fclose(cf);
+            }
+        }
+#endif
         if (downs[i]) rg_key(1, downs[i]);
         if (ups[i]) rg_key(0, ups[i]);
         double t = now_s();

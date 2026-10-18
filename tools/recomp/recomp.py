@@ -78,7 +78,38 @@ def load(path):
     for ins in instrs.values():
         if ins.mnem in ('BSR', 'BSF'):
             fix_bitscan(ins)
+    apply_patches(instrs)
     return funcs, instrs
+
+
+# Layout patches for the 640x360 native build (the engine is laid out for 240x320). The tutorial /
+# story dialogue screen (FUN_100b8360 builds it, FUN_100b8570 draws it) places its speech box
+# (centre x 0x78 = 120), its text (x 0x4b) and the portrait (x = slide offset) for a 240-wide screen,
+# so on 640 they hug the left edge. Shifting x by (640 - 240) / 2 centres them on the screen.
+DIALOG_DX = 200
+PATCHES = {
+    0x100b85fa: ('const', 0x78, 0x78 + DIALOG_DX),    # ADD EBP,0x78: speech box centre x
+    0x100b875e: ('const', 0x4b, 0x4b + DIALOG_DX),    # ADD EBP,0x4b: text x
+    0x100b8808: ('addreg', 8, DIALOG_DX),             # MOV EDX,[ESP+0x10]: portrait x (EDX += dx)
+}
+
+
+def apply_patches(instrs):
+    for addr, p in PATCHES.items():
+        ins = instrs.get(addr)
+        if ins is None:
+            raise SystemExit('patch site %x not found' % addr)
+        if p[0] == 'const':
+            n = 0
+            for opc, o, a in ins.ops:
+                for i, v in enumerate(a):
+                    if v[0] == 'c' and v[1] == p[1]:
+                        a[i] = ('c', p[2], v[2])
+                        n += 1
+            if not n:
+                raise SystemExit('patch site %x: constant %#x not found' % (addr, p[1]))
+        elif p[0] == 'addreg':
+            ins.ops.append(('INT_ADD', ('r', p[1], 4), [('r', p[1], 4), ('c', p[2], 4)]))
 
 
 def fix_bitscan(ins):
@@ -394,6 +425,9 @@ class FuncGen:
         if opc == 'CALLIND':
             return '%s rt_call(%s); %s' % (self.SPILL, self.rd(a[0]), self.RELOAD)
         if opc == 'RETURN':
+            if self.entry in self.rc.trace:
+                self.gprs.add('eax')
+                return 'rt_trace_ret(0x%xu, eax); %s return;' % (self.entry, self.SPILL)
             return '%s return;' % self.SPILL
         if opc == 'CALLOTHER':
             name = a[0][1]
@@ -536,7 +570,8 @@ class FuncGen:
 
 # Function entries that call rt_hook() (native/rt/rt.c): the host can intercept them (game
 # server mode: native/rt/server.c). Inert unless a handler is registered.
-DEFAULT_HOOKS = {0x1008fa80, 0x1008f500}      # main menu flow: event handler, constructor
+DEFAULT_HOOKS = {0x1008fa80, 0x1008f500,      # main menu flow: event handler, constructor
+                 0x100d5350}                    # block placement tool activated (rt: hook_tile_tool)
 
 
 class Recompiler:

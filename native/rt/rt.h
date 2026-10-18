@@ -100,7 +100,9 @@ extern int rt_trace_live;
 void rt_trace_live_log(uint32_t a);
 extern uint32_t rt_callstack[1024];
 extern unsigned rt_callstack_depth;
-#define RT_ENTER(a) (rt_calltrace[rt_calltrace_pos++ & 255] = (a), rt_callstack[rt_callstack_depth++ & 1023] = (a),                      rt_trace_live > 0 ? rt_trace_live_log(a) : (void)0)
+extern int rt_cov_on;                    /* function-entry coverage (rgtest RG_COV) */
+extern uint8_t rt_cov[0x40000];
+#define RT_ENTER(a) (rt_cov_on ? (void)(rt_cov[(((a) - 0x10000000u) >> 3) & 0x3ffff] |= (uint8_t)(1u << (((a) - 0x10000000u) & 7))) : (void)0, rt_calltrace[rt_calltrace_pos++ & 255] = (a), rt_callstack[rt_callstack_depth++ & 1023] = (a),                      rt_trace_live > 0 ? rt_trace_live_log(a) : (void)0)
 #define RT_LEAVE() (rt_callstack_depth--)
 #else
 #define RT_ENTER(a) ((void)0)
@@ -111,6 +113,7 @@ extern const rt_func_entry rt_func_table[];
 extern const unsigned rt_func_count;
 
 void rt_call(uint32_t addr);                               /* indirect call/jump target */
+void rt_trace_ret(uint32_t func, uint32_t eax);          /* return value of a traced function */
 void rt_trace(uint32_t func);                              /* recomp.py --trace */
 void rt_hook(uint32_t func);                               /* recomp.py hooks (DEFAULT_HOOKS / --hook) */
 typedef void (*rt_hook_fn)(void);                          /* runs at function entry; ECX/ESP are the callee's */

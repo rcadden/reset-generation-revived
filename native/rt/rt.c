@@ -10,6 +10,8 @@ rt_cpu cpu;
 uint32_t rt_calltrace[256];
 unsigned rt_calltrace_pos;
 int rt_trace_live;
+int rt_cov_on;
+uint8_t rt_cov[0x40000];
 uint32_t rt_callstack[1024];
 unsigned rt_callstack_depth;
 void rt_trace_live_log(uint32_t a) {
@@ -115,8 +117,30 @@ void rt_call(uint32_t addr) {
     rt_fatal("indirect call to unknown address %08x", addr);
 }
 
+void rt_trace_ret(uint32_t func, uint32_t eax) { host_log("   ret %08x -> %08x", func, eax); }
+
 void rt_trace(uint32_t func) {
     host_log("trace %08x ecx=%08x [esp+4]=%08x [esp+8]=%08x", func, cpu.r[ECX], LD32(cpu.r[ESP] + 4), LD32(cpu.r[ESP] + 8));
+    if (func == 0x100d4df0) {   /* place action: cursor, rotation vs the tutorial's forced target */
+        uint32_t t = cpu.r[ECX], f = LD32(t + 0x18);
+        host_log("   DROP cursor=(%d,%d) rot=%d | forced=%d at (%d,%d) rot=%d",
+                 (int)LD32(t + 0x84), (int)LD32(t + 0x88), (int)LD32(t + 0xb4),
+                 (int)(LD32(f + 0xac) >> 8 & 0xff), (int)LD32(f + 0x98), (int)LD32(f + 0x9c), (int)LD32(f + 0xa8));
+    }
+    if (func == 0x100078e0) {   /* place-tile order: owner, rotation, piece, position */
+        uint32_t o = LD32(cpu.r[ESP] + 4);
+        host_log("   PLACE order %08x owner=%d rot=%d piece=%d pos=(%d,%d)", o, (int)LD32(o + 0x30), (int)LD32(o + 0x4c), (int)LD32(o + 0x50), (int)LD32(o + 0x44), (int)LD32(o + 0x48));
+    }
+    if (func == 0x1000ce60) {
+        host_log("   event type %d", (int)LD32(cpu.r[ECX] + 0x18));
+#ifdef RT_CALLTRACE
+        if (LD32(cpu.r[ECX] + 0x18) == 13 || LD32(cpu.r[ECX] + 0x18) == 5) {
+            char line[1024]; size_t n = 0;
+            for (unsigned i = 60; i > 0; i--) n += (size_t)snprintf(line + n, sizeof line - n, "%08x ", rt_calltrace[(rt_calltrace_pos - i) & 255]);
+            host_log("   calls: %s", line);
+        }
+#endif
+    }
     if (func == 0x10115040 || func == 0x10114370) {   /* key/value lookup: print the key */
         uint32_t a = LD32(cpu.r[ESP] + 4), h = a ? LD32(a) : 0;
         if (func == 0x10114370) host_log("   kv get \"%s\"", (const char *)(M + a));
