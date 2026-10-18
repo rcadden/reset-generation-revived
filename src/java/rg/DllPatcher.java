@@ -6,8 +6,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 
 /**
- * Centres the in-game fight cut-in popup on wide screens by patching two draw
- * positions in ResetGeneration-Win32-Web.dll.
+ * Widens the engine's tile-view viewport and centres the in-game fight cut-in popup on
+ * wide screens by patching ResetGeneration-Win32-Web.dll.
  *
  * When the screen is wider than 240 px the engine draws attack/defence cut-ins
  * inside a decorative frame (data/gameplay/ui/animframe.gfx, 420x378) at the
@@ -21,12 +21,18 @@ import java.io.OutputStream;
  *    code cave that stores dx/dy and jumps back
  *  - the cave lives in the unused tail of .text (RVA 0x176550); .text's
  *    VirtualSize is raised to its raw size so the loader maps it.
+ * The tile views (block-placement ghost and highlight layers, FUN_100867c0 at RVA 0x867c0) draw only
+ * the viewport columns [start, grid+0x18+1); the value is sized for a 240 px screen. The playfield is
+ * centred on wide screens so its columns start at viewport column 4 and the last 2-3 columns were
+ * never drawn (the ghost vanished there). 0x86822 "mov edx,[ecx+0x18]; inc edx" becomes
+ * "push 0x1f; pop edx; nop" (a 31-column viewport; the engine trims it to the map width).
+ *
  * The original is kept as *.dll.orig; every patch site is verified first and
  * nothing is changed if the bytes are not the expected ones.
  */
 final class DllPatcher {
     static final String DLL = "ResetGeneration-Win32-Web.dll";
-    private static final String VERSION = "1";
+    private static final String VERSION = "2";
 
     private static final int FRAME_W = 420;
     private static final int FRAME_H = 378;
@@ -35,6 +41,9 @@ final class DllPatcher {
     private static final int SURFACE_Y_IMM = 0x28ad1;
     private static final int FRAME_SITE = 0x28af3;
     private static final int FRAME_RESUME = 0x28afb;
+    private static final int VIEW_SITE = 0x86822;
+    private static final byte[] VIEW_SITE_ORIG = {(byte) 0x8b, 0x51, 0x18, 0x42};
+    private static final byte[] VIEW_SITE_NEW = {0x6a, 0x1f, 0x5a, (byte) 0x90};
     private static final int CAVE = 0x176550;
     private static final int CAVE_LEN = 21;
     private static final int TEXT_VSIZE_FIELD = 0x1e0;
@@ -52,7 +61,8 @@ final class DllPatcher {
         File dll = new File(gameDir, DLL);
         File orig = new File(gameDir, DLL + ".orig");
         File stamp = new File(gameDir, DLL + ".revived");
-        String want = VERSION + ":" + dx + "," + dy;
+        boolean wide = width > 240;
+        String want = VERSION + ":" + dx + "," + dy + (wide ? ",w" : "");
         try {
             if (stamp.exists() && want.equals(new String(PakPatcher.readAll(stamp), "UTF-8").trim()) && dll.exists()) {
                 return;
@@ -70,6 +80,9 @@ final class DllPatcher {
             if (!matchesOriginal(b)) {
                 System.out.println("Revived: unexpected engine DLL build; fight popup left uncentred");
                 return;
+            }
+            if (wide) {
+                System.arraycopy(VIEW_SITE_NEW, 0, b, VIEW_SITE, VIEW_SITE_NEW.length);
             }
             if (dx != 0 || dy != 0) {
                 putInt(b, SURFACE_X_IMM, 0x5a + dx);
@@ -108,7 +121,7 @@ final class DllPatcher {
             } finally {
                 s.close();
             }
-            System.out.println("Revived: fight popup offset " + dx + "," + dy);
+            System.out.println("Revived: fight popup offset " + dx + "," + dy + (wide ? ", wide tile views" : ""));
         } catch (Exception ex) {
             System.out.println("Revived: could not patch " + DLL + " (" + ex + ")");
         }
@@ -118,6 +131,11 @@ final class DllPatcher {
         if (b.length < TEXT_RAW_SIZE + 0x1000 || getInt(b, SURFACE_X_IMM) != 0x5a || getInt(b, SURFACE_Y_IMM) != 0x1d
                 || getInt(b, TEXT_VSIZE_FIELD) != TEXT_VSIZE_ORIG) {
             return false;
+        }
+        for (int i = 0; i < VIEW_SITE_ORIG.length; ++i) {
+            if (b[VIEW_SITE + i] != VIEW_SITE_ORIG[i]) {
+                return false;
+            }
         }
         for (int i = 0; i < FRAME_SITE_ORIG.length; ++i) {
             if (b[FRAME_SITE + i] != FRAME_SITE_ORIG[i]) {

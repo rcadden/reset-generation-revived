@@ -97,6 +97,11 @@ phone and open it (allow "install unknown apps" for the file manager), or
   is laid out for 240 px width. `recomp.py` has a `PATCHES` table that shifts its three x
   positions by (640 - 240) / 2 = 200 at recompile time (`FUN_100b8570`: box centre `0x78`, text
   `0x4b`, portrait x). Constants are for the native 640x360 build.
+* **Ghost / highlight clipped on the right.** The board's tile views (the block-placement ghost,
+  highlight layers; `FUN_100867c0`) draw only the viewport columns `[start, grid+0x18+1)`; `grid+0x18`
+  is 13 (sized for 240 px). On 640 the centred board starts at viewport column 4, so tile columns 10-11
+  were never drawn. `recomp.py` patches the viewport load at `0x10086822` (`VIEW_COLS_EXTRA`); the
+  Windows build gets the same fix from `DllPatcher` (31 columns).
 * **Tutorial piece ghost.** The ghost of the piece being placed lives in an overlay layer drawn
   under the blocks, and the tutorial starts the cursor on top of existing blocks, so it was
   invisible. `hook_tile_tool` (engine.c, hooked at `FUN_100d5350`, the placement tool's

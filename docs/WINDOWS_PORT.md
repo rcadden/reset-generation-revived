@@ -17,9 +17,10 @@ audio device, in-game Quit.
 | Above 240×320, screens left stale pixels where the original art did not reach | The engine framebuffer is **cleared before every frame**. |
 | Cutscenes drawn in the top-left corner and cut off at the bottom | Cutscene scripts in `intro.pak`/`story.pak` use absolute 240×320 coordinates; the launcher **offsets them to the centre** of the screen. |
 | Attack cut-ins ("fight" popups) drawn against the left edge | Their frame and 240×320 surface are drawn at hard-coded positions; `DllPatcher` **patches those two draw positions** in a copy of the engine DLL (original kept as `.dll.orig`, patch sites verified byte-for-byte first). |
+| Block-placement ghost invisible over the right-most board columns | The engine's tile views only draw 13 viewport columns (sized for 240 px) and the centred board starts at column 4; `DllPatcher` widens the viewport (`mov edx,[ecx+0x18]; inc edx` -> `push 0x1f; pop edx; nop`). |
 | Launched via `start.bat` | `ResetGeneration-Revived.exe` with an icon. |
 
-Apart from that one verified position patch, the native engine is unmodified: the fixes are in
+Apart from those verified patches, the native engine is unmodified: the fixes are in
 Java and in data.
 
 ## How it works

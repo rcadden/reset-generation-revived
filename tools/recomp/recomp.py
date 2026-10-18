@@ -88,6 +88,7 @@ def load(path):
 # so on 640 they hug the left edge. Shifting x by (640 - 240) / 2 centres them on the screen.
 DIALOG_DX = 200
 POPUP_DX = (640 - 420) // 2
+VIEW_COLS_EXTRA = 18
 PATCHES = {
     0x100b85fa: ('const', 0x78, 0x78 + DIALOG_DX),    # ADD EBP,0x78: speech box centre x
     0x100b875e: ('const', 0x4b, 0x4b + DIALOG_DX),    # ADD EBP,0x4b: text x
@@ -96,6 +97,10 @@ PATCHES = {
     # (0,0) and the 240x320 fight surface at (90,29) inside it. Centre both horizontally.
     0x10028ac5: ('const', 0x5a, 0x5a + POPUP_DX),     # MOV [ESP+0x10],0x5a: fight surface x
     0x10028af3: ('srcreg', 0xc, POPUP_DX),            # MOV [ESP+8],EBX (=0): frame x
+    # Tile views (FUN_100867c0: the block-placement ghost / highlight layers) draw only
+    # [start, this+0x64) viewport columns, 13+1 for a 240 px screen. The board is centred on 640, so its
+    # columns start at viewport column 4 and the last 2-3 were never drawn. Widen the viewport.
+    0x10086822: ('addreg', 8, VIEW_COLS_EXTRA),       # MOV EDX,[ECX+0x18]: viewport columns (EDX += n)
 }
 
 
