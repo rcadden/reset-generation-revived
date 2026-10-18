@@ -40,7 +40,14 @@ Java and in data.
   interrupted copy) used to make `DllPatcher`/`PakPatcher` silently skip patching (popup stayed left-aligned,
   intro/story paks unshifted). Such a backup is now discarded and recreated while the target is still unpatched.
 * `src/java/rg/DllPatcher.java` — centres the fight popup (see the class comment for the exact
-  patch: two immediates plus a 21-byte code cave in the unused tail of `.text`).
+  patch: two immediates plus a 21-byte code cave in the unused tail of `.text`). It also centres the
+  end-of-match **win/lose scenes**: the scene draw `FUN_100dafa0` draws with 240-wide coordinates, so a
+  wrapper arms a global `xoff = (width-240)/2` for its duration (return address diverted through a
+  clearing stub) and a wrapper around the device draw `FUN_10052de0` adds `xoff` to `pos.x` around each
+  call (skipping text-box widgets called from RVA 0xa2xxx, which centre themselves). The wrappers and
+  `xoff` live in a second cave at RVA 0x176580; `.text` is made writable and the caves address their data
+  with call/pop so they survive relocation. `tools/testdata/single_player_game.save` is a post-tutorial
+  save for testing (copy it into the game folder; `build_windows.sh` wipes `dist/`).
 * Everything else is the original `ResetGeneration.jar` / `rg-signed.jar`, repacked.
 
 **Resolution choice.** `render_height=auto` takes the largest integer scale that keeps at least
@@ -71,13 +78,8 @@ takes a screenshot (`tools/rgkeys.ps1`, `tools/winshot.ps1`).
    leaving black on the right. Menus are laid out correctly; it is art coverage only. Fix idea:
    extend `PakPatcher` to centre or tile `menus.pak` background sprites.
 2. Cutscene backdrops are 240 px wide: centred with black (or tiled effect layers) either side.
-   The end-of-match **win/lose screens** draw their layers straight to the screen with 240-wide
-   coordinates (scripts cannot simply be shifted: tried and reverted). The Android/native build now
-   centres them at recompile time (`docs/NATIVE_PORT.md`, "Win/lose screen centring"); the Windows
-   build still needs the equivalent: the scene draw is `FUN_100dafa0` (x + 200 on every sprite/text
-   draw it makes, via the device draw `FUN_10052de0`; text boxes called from 0x100a2xxx centre
-   themselves already), which needs a code cave in `DllPatcher` as for the fight popup.
-   A nicer frame (blurred/extended art) would need new art.
+   A nicer frame (blurred/extended art) would need new art. (The end-of-match win/lose scenes are
+   centred by `DllPatcher`, see above.)
 3. "**Quick Match**" and "**Online**" now log in to our relay (`server/`, set `server=` in
    `revived.ini`; no Arena login screen). Quick Match pairs players into a game room, but the
    match itself does not start yet (`MULTIPLAYER.md`, "Next step").
