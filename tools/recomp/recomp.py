@@ -87,10 +87,15 @@ def load(path):
 # (centre x 0x78 = 120), its text (x 0x4b) and the portrait (x = slide offset) for a 240-wide screen,
 # so on 640 they hug the left edge. Shifting x by (640 - 240) / 2 centres them on the screen.
 DIALOG_DX = 200
+POPUP_DX = (640 - 420) // 2
 PATCHES = {
     0x100b85fa: ('const', 0x78, 0x78 + DIALOG_DX),    # ADD EBP,0x78: speech box centre x
     0x100b875e: ('const', 0x4b, 0x4b + DIALOG_DX),    # ADD EBP,0x4b: text x
     0x100b8808: ('addreg', 8, DIALOG_DX),             # MOV EDX,[ESP+0x10]: portrait x (EDX += dx)
+    # Fight cut-in popup (same sites as src/java/rg/DllPatcher.java): the 420x378 frame is drawn at
+    # (0,0) and the 240x320 fight surface at (90,29) inside it. Centre both horizontally.
+    0x10028ac5: ('const', 0x5a, 0x5a + POPUP_DX),     # MOV [ESP+0x10],0x5a: fight surface x
+    0x10028af3: ('srcreg', 0xc, POPUP_DX),            # MOV [ESP+8],EBX (=0): frame x
 }
 
 
@@ -108,6 +113,15 @@ def apply_patches(instrs):
                         n += 1
             if not n:
                 raise SystemExit('patch site %x: constant %#x not found' % (addr, p[1]))
+        elif p[0] == 'srcreg':
+            n = 0
+            for opc, o, a in ins.ops:
+                for i, v in enumerate(a):
+                    if opc == 'COPY' and v[0] == 'r' and v[1] == p[1]:
+                        a[i] = ('c', p[2], v[2])
+                        n += 1
+            if not n:
+                raise SystemExit('patch site %x: register %#x not found' % (addr, p[1]))
         elif p[0] == 'addreg':
             ins.ops.append(('INT_ADD', ('r', p[1], 4), [('r', p[1], 4), ('c', p[2], 4)]))
 
