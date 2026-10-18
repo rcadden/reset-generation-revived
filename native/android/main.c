@@ -512,7 +512,13 @@ void android_main(struct android_app *app) {
         if (!booted && window) timeout = 0;
         while (ALooper_pollOnce(timeout, NULL, &events, (void **)&src) >= 0) {
             if (src) src->process(app, src);
-            if (app->destroyRequested) { audio_stop(); return; }
+            if (app->destroyRequested) {
+                /* The engine and runtime keep their state in process-wide globals and cannot be
+                 * re-initialised, so a process that outlives its activity would relaunch into the
+                 * dead engine. Take the process down with the activity (exit flushes saves). */
+                audio_stop();
+                exit(0);
+            }
             timeout = (booted && focused && window) ? 0 : (!booted && window) ? 0 : -1;
         }
         if (!booted && window) {
