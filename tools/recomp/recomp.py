@@ -75,7 +75,23 @@ def load(path):
             elif k == 'F':
                 _, a, name = line.rstrip('\n').split(' ', 2)
                 funcs[int(a, 16)] = name
+    for ins in instrs.values():
+        if ins.mnem in ('BSR', 'BSF'):
+            fix_bitscan(ins)
     return funcs, instrs
+
+
+def fix_bitscan(ins):
+    """Ghidra's BSR/BSF model writes 31/0 to the destination for a zero source; hardware leaves
+    it unchanged (compilers rely on it: MOV EAX,-1 / BSR EAX,ECX). Make the zero-source branch
+    skip the final destination write."""
+    last = len(ins.ops) - 1
+    if last < 1 or ins.ops[last][0] != 'COPY':
+        return
+    for i, (opc, o, a) in enumerate(ins.ops):
+        if opc == 'CBRANCH' and a[0][0] == 'c' and i + rel_const(a[0]) == last:
+            a[0] = ('c', a[0][1] + 1, a[0][2])
+            return
 
 
 class Unsupported(Exception):

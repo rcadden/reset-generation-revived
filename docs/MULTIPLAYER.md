@@ -243,7 +243,11 @@ screen (two castles on the field). Transport findings:
   (`0x10010147` had one of its two targets: "indirect call to unknown address 10010153").
   `DEFAULT_HOOKS` / `--hook` add `rt_hook()` calls at function entries.
 
-**Open (next): crash in the first game event.** Shortly after the match screen appears both the
+**Fixed: crash in the first game event** — a recompiler bug, not the event data. Ghidra's P-code for
+`BSR`/`BSF` writes 31 (or 0) to the destination when the source is 0, but hardware leaves it
+unchanged, and the compiler relies on that (`MOV EAX,-1; BSR EAX,ECX` at `0x1001e10c`). Cells with
+an empty piece mask therefore got type 31 instead of "no change"; `fix_bitscan` in `recomp.py`
+now skips the destination write. Original symptom: shortly after the match screen appears both the
 client and the server crash in `0x10018940` (the board's "existing combos" check, called from the
 event processor `0x1001dbe0`): it indexes a 5-entry colour table with the cell type, and at that
 call every cell of the board reads type 31 (the first two calls, during setup, show normal
